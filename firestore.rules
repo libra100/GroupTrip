@@ -1,0 +1,129 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: members
+    // Document ID: memberId
+    // Fields:
+    //   - id: string (required)
+    //   - name: string (required, < 100 chars)
+    //   - dietaryHabits: string (optional, < 100 chars)
+    //   - phone: string (optional, < 20 chars)
+    //   - passportInfo: string (optional, < 200 chars)
+    //   - groupId: string (optional)
+    //   - tags: list (optional, strings < 50 chars)
+    //
+    // Collection: groups
+    // Document ID: groupId
+    // Fields:
+    //   - id: string (required)
+    //   - name: string (required, < 100 chars)
+    //
+    // Collection: itineraries
+    // Document ID: itineraryId
+    // Fields:
+    //   - id: string (required)
+    //   - title: string (required, < 200 chars)
+    //   - startTime: timestamp (required)
+    //   - endTime: timestamp (optional)
+    //   - type: string (required, enum: attraction, dining, transit, logistics)
+    //   - location: map (optional)
+    //   - notes: string (optional, < 1000 chars)
+    //   - isMain: bool (required)
+    //   - assignedMemberIds: list (optional, strings)
+    //
+    // Collection: rollcalls
+    // Document ID: rollcallId
+    // Fields:
+    //   - id: string (required)
+    //   - itineraryId: string (required)
+    //   - timestamp: timestamp (required)
+    //   - statusMap: map (required, keys are memberIds, values are present/absent/divergent)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner() {
+      // For this app, we consider the project owner (leo135768leo@gmail.com) as the admin
+      return isAuthenticated() && (
+        request.auth.token.email == "leo135768leo@gmail.com" && 
+        request.auth.token.email_verified == true
+      );
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidMember(data) {
+      return hasRequiredFields(['id', 'name']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             (!('dietaryHabits' in data) || (data.dietaryHabits is string && data.dietaryHabits.size() < 100)) &&
+             (!('phone' in data) || (data.phone is string && data.phone.size() < 20)) &&
+             (!('passportInfo' in data) || (data.passportInfo is string && data.passportInfo.size() < 200));
+    }
+
+    function isValidItinerary(data) {
+      return hasRequiredFields(['id', 'title', 'startTime', 'type', 'isMain']) &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             data.startTime is timestamp &&
+             (!('endTime' in data) || data.endTime is timestamp) &&
+             data.type in ['attraction', 'dining', 'transit', 'logistics'] &&
+             data.isMain is bool &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() < 1000));
+    }
+
+    function isValidRollCall(data) {
+      return hasRequiredFields(['id', 'itineraryId', 'timestamp', 'statusMap']) &&
+             data.itineraryId is string &&
+             data.timestamp is timestamp &&
+             data.statusMap is map;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    match /members/{memberId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner() && isValidMember(request.resource.data);
+    }
+
+    match /groups/{groupId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner();
+    }
+
+    match /itineraries/{itineraryId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner() && isValidItinerary(request.resource.data);
+    }
+
+    match /rollcalls/{rollcallId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner() && isValidRollCall(request.resource.data);
+    }
+    
+    match /test/connection {
+      allow read: if isAuthenticated();
+    }
+  }
+}

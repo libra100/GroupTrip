@@ -1,0 +1,70 @@
+{
+  "entities": {
+    "Member": {
+      "title": "Member",
+      "description": "A group member participating in the trip",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique ID of the member" },
+        "name": { "type": "string", "description": "Full name of the member" },
+        "dietaryHabits": { "type": "string", "description": "Dietary requirements or habits" },
+        "phone": { "type": "string", "description": "Contact phone number" },
+        "passportInfo": { "type": "string", "description": "Passport details" },
+        "groupId": { "type": "string", "description": "ID of the group they belong to" },
+        "tags": { "type": "array", "items": { "type": "string" }, "description": "Custom tags for categorization" }
+      },
+      "required": ["id", "name"]
+    },
+    "Group": {
+      "title": "Group",
+      "description": "A sub-group within the trip (e.g., Bus 1)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique ID of the group" },
+        "name": { "type": "string", "description": "Name of the group" }
+      },
+      "required": ["id", "name"]
+    },
+    "Itinerary": {
+      "title": "Itinerary",
+      "description": "An event or activity in the trip schedule",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique ID of the itinerary" },
+        "title": { "type": "string", "description": "Title of the event" },
+        "startTime": { "type": "string", "format": "date-time", "description": "Start time of the event" },
+        "endTime": { "type": "string", "format": "date-time", "description": "End time of the event (optional)" },
+        "type": { "type": "string", "enum": ["attraction", "dining", "transit", "logistics"], "description": "Type of event" },
+        "location": {
+          "type": "object",
+          "properties": {
+            "address": { "type": "string" },
+            "navLink": { "type": "string" }
+          }
+        },
+        "notes": { "type": "string" },
+        "isMain": { "type": "boolean", "description": "Whether this is a main event for everyone" },
+        "assignedMemberIds": { "type": "array", "items": { "type": "string" }, "description": "Members assigned to this event if not main" }
+      },
+      "required": ["id", "title", "startTime", "type"]
+    },
+    "RollCall": {
+      "title": "RollCall",
+      "description": "A record of attendance for an itinerary event",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique ID of the roll call" },
+        "itineraryId": { "type": "string", "description": "ID of the associated itinerary" },
+        "timestamp": { "type": "string", "format": "date-time", "description": "When the roll call was taken" },
+        "statusMap": { "type": "object", "description": "Map of member IDs to their attendance status" }
+      },
+      "required": ["id", "itineraryId", "timestamp", "statusMap"]
+    }
+  },
+  "firestore": {
+    "/members/{memberId}": { "schema": "Member", "description": "Group members" },
+    "/groups/{groupId}": { "schema": "Group", "description": "Sub-groups" },
+    "/itineraries/{itineraryId}": { "schema": "Itinerary", "description": "Trip schedule events" },
+    "/rollcalls/{rollcallId}": { "schema": "RollCall", "description": "Attendance records" }
+  }
+}
