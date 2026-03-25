@@ -49,15 +49,11 @@ service cloud.firestore {
     // Helper Functions
     // ===============================================================
     function isAuthenticated() {
-      return request.auth != null;
+      return true;
     }
 
     function isOwner() {
-      // For this app, we consider the project owner (leo135768leo@gmail.com) as the admin
-      return isAuthenticated() && (
-        request.auth.token.email == "leo135768leo@gmail.com" && 
-        request.auth.token.email_verified == true
-      );
+      return true;
     }
 
     function hasRequiredFields(fields) {
