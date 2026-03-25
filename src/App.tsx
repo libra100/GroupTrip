@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { 
   onAuthStateChanged, 
-  signInWithPopup, 
+  signInWithRedirect, 
   GoogleAuthProvider, 
   signOut,
   User
@@ -100,7 +100,7 @@ export default function App() {
   const handleLogin = async () => {
     const provider = new GoogleAuthProvider();
     try {
-      await signInWithPopup(auth, provider);
+      await signInWithRedirect(auth, provider);
     } catch (error) {
       console.error("Login failed:", error);
     }
