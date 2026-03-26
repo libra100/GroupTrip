@@ -15,15 +15,17 @@ import {
   CheckCircle, 
   LayoutDashboard, 
   Menu,
-  X
+  X,
+  Plane
 } from 'lucide-react';
 import { cn } from './lib/utils';
 import Dashboard from './components/Dashboard';
 import MemberManagement from './components/MemberManagement';
 import ItineraryPlanner from './components/ItineraryPlanner';
 import RollCallSystem from './components/RollCallSystem';
+import FlightManager from './components/FlightManager';
 
-type View = 'dashboard' | 'members' | 'itinerary' | 'rollcall';
+type View = 'dashboard' | 'members' | 'flights' | 'itinerary' | 'rollcall';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
@@ -51,19 +53,19 @@ export default function App() {
   // Real-time data sync
   useEffect(() => {
     const unsubMembers = onSnapshot(collection(db, 'members'), (snapshot) => {
-      setMembers(snapshot.docs.map(doc => ({ ...doc.data() } as Member)));
+      setMembers(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Member)));
     });
 
     const unsubGroups = onSnapshot(collection(db, 'groups'), (snapshot) => {
-      setGroups(snapshot.docs.map(doc => ({ ...doc.data() } as Group)));
+      setGroups(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Group)));
     });
 
     const unsubItineraries = onSnapshot(query(collection(db, 'itineraries'), orderBy('startTime', 'asc')), (snapshot) => {
-      setItineraries(snapshot.docs.map(doc => ({ ...doc.data() } as Itinerary)));
+      setItineraries(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Itinerary)));
     });
 
     const unsubRollCalls = onSnapshot(collection(db, 'rollcalls'), (snapshot) => {
-      setRollCalls(snapshot.docs.map(doc => ({ ...doc.data() } as RollCall)));
+      setRollCalls(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as RollCall)));
     });
 
     return () => {
@@ -75,10 +77,11 @@ export default function App() {
   }, []);
 
   const navItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'members', label: 'Members', icon: Users },
-    { id: 'itinerary', label: 'Itinerary', icon: Calendar },
-    { id: 'rollcall', label: 'Roll Call', icon: CheckCircle },
+    { id: 'dashboard', label: '總覽儀表板', icon: LayoutDashboard },
+    { id: 'members', label: '名單管理', icon: Users },
+    { id: 'flights', label: '航班資訊', icon: Plane },
+    { id: 'itinerary', label: '行程規劃', icon: Calendar },
+    { id: 'rollcall', label: '點名系統', icon: CheckCircle },
   ];
 
   return (
@@ -141,10 +144,17 @@ export default function App() {
               groups={groups} 
             />
           )}
+          {currentView === 'flights' && (
+            <FlightManager 
+              members={members} 
+              groups={groups} 
+            />
+          )}
           {currentView === 'itinerary' && (
             <ItineraryPlanner 
               itineraries={itineraries} 
               members={members} 
+              groups={groups}
             />
           )}
           {currentView === 'rollcall' && (

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Itinerary, Member, ItineraryType } from '../types';
+import { Itinerary, Member, Group, ItineraryType } from '../types';
 import { 
   Plus, 
   Calendar, 
@@ -36,6 +36,7 @@ const safeFormat = (date: Date | null | number | undefined, formatStr: string) =
 interface ItineraryPlannerProps {
   itineraries: Itinerary[];
   members: Member[];
+  groups: Group[];
 }
 
 interface TripSettings {
@@ -43,7 +44,7 @@ interface TripSettings {
   endDate: string;
 }
 
-export default function ItineraryPlanner({ itineraries, members }: ItineraryPlannerProps) {
+export default function ItineraryPlanner({ itineraries, members, groups }: ItineraryPlannerProps) {
   const [isAdding, setIsAdding] = useState(false);
   const [editing, setEditing] = useState<Itinerary | null>(null);
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
@@ -193,6 +194,13 @@ export default function ItineraryPlanner({ itineraries, members }: ItineraryPlan
     }
   };
 
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'itineraries', id));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `itineraries/${id}`);
+    }
+  };
 
   const getTypeColor = (type: ItineraryType) => {
     switch (type) {
@@ -443,6 +451,12 @@ export default function ItineraryPlanner({ itineraries, members }: ItineraryPlan
                             >
                               <Edit2 className="w-4 h-4" />
                             </button>
+                            <button 
+                              onClick={() => handleDelete(it.id)}
+                              className="p-2 text-stone-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -622,6 +636,41 @@ export default function ItineraryPlanner({ itineraries, members }: ItineraryPlan
                 {!newItem.isMain && (
                   <div className="md:col-span-2">
                     <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-3">指派參與此脫隊行程的團員</label>
+                    
+                    {/* Select by Group */}
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {groups.map(group => {
+                        const groupMembers = members.filter(m => m.groupId === group.id);
+                        if (groupMembers.length === 0) return null;
+                        
+                        const allSelected = groupMembers.every(m => selectedMembers.includes(m.id));
+                        
+                        return (
+                          <button
+                            key={group.id}
+                            type="button"
+                            onClick={() => {
+                              const groupMemberIds = groupMembers.map(m => m.id);
+                              if (allSelected) {
+                                setSelectedMembers(prev => prev.filter(id => !groupMemberIds.includes(id)));
+                              } else {
+                                const newSelection = [...new Set([...selectedMembers, ...groupMemberIds])];
+                                setSelectedMembers(newSelection);
+                              }
+                            }}
+                            className={cn(
+                              "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border transition-all",
+                              allSelected 
+                                ? "bg-[#00F3FF]/10 text-[#00F3FF] border-[#00F3FF]" 
+                                : "bg-white text-stone-400 border-stone-200 hover:border-stone-400"
+                            )}
+                          >
+                            選取整組: {group.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-48 overflow-y-auto p-4 bg-stone-50 border border-stone-200 rounded-2xl">
                       {members.map(m => (
                         <button
