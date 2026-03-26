@@ -147,16 +147,16 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
   };
 
   return (
-    <div className="space-y-6 flex flex-col h-full lg:max-h-[calc(100vh-140px)]">
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-        <div className="flex-shrink-0">
-          <h2 className="text-3xl font-serif font-light mb-1">點名系統</h2>
-          <p className="text-stone-500 text-xs font-medium uppercase tracking-widest opacity-70">Roll Call System</p>
+    <div className="space-y-6 flex flex-col h-full lg:max-h-[calc(100vh-120px)]">
+      <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4 border-b border-stone-100 pb-4">
+        <div className="flex-shrink-0 mb-2 xl:mb-0">
+          <h2 className="text-2xl font-serif font-light leading-tight">點名系統</h2>
+          <p className="text-stone-400 text-[10px] font-bold uppercase tracking-widest">Attendance System</p>
         </div>
 
         {/* Day Tabs */}
         {tripDates.length > 0 && (
-          <div className="flex-1 flex gap-2 overflow-x-auto pb-2 no-scrollbar lg:justify-end">
+          <div className="flex-1 min-w-0 flex gap-2 overflow-x-auto pb-1 no-scrollbar lg:justify-end">
             {tripDates.map((dateStr, idx) => {
               const count = validItineraries.filter(it => {
                 const startObj = it.startTime instanceof Timestamp ? it.startTime.toDate() : new Date(it.startTime);
@@ -168,19 +168,19 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
                   key={dateStr}
                   onClick={() => setActiveDate(dateStr)}
                   className={cn(
-                    "flex-shrink-0 px-5 py-2.5 border rounded-2xl text-sm font-medium transition-all shadow-sm flex items-center gap-3",
+                    "flex-shrink-0 px-4 py-2 border rounded-2xl text-sm font-medium transition-all shadow-sm flex items-center gap-2",
                     activeDate === dateStr 
                       ? "bg-stone-900 text-white border-stone-900 scale-105" 
                       : "bg-white border-stone-200 text-stone-600 hover:bg-stone-50"
                   )}
                 >
-                  <div className="flex flex-col items-start leading-tight">
-                    <span className="text-[10px] uppercase font-bold tracking-wider opacity-60">D{idx + 1}</span>
-                    <span className="font-bold">{safeFormat(parseISO(dateStr), 'MM/dd')}</span>
+                  <div className="flex flex-col items-start leading-none">
+                    <span className="text-[9px] uppercase font-bold tracking-wider opacity-60">D{idx + 1}</span>
+                    <span className="font-bold text-xs">{safeFormat(parseISO(dateStr), 'MM/dd')}</span>
                   </div>
                   
                   <div className={cn(
-                    "px-2 py-0.5 rounded-full text-[10px] font-bold",
+                    "px-1.5 py-0.5 rounded-full text-[9px] font-bold",
                     activeDate === dateStr ? "bg-white/20 text-white" : "bg-stone-100 text-stone-400"
                   )}>
                     {count}
