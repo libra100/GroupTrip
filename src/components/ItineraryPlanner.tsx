@@ -326,8 +326,20 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
                   : "bg-white border-stone-200 text-stone-600 hover:bg-stone-50"
               )}
             >
-              <span className="text-[10px] uppercase font-bold tracking-wider opacity-70 mb-0.5">第 {idx + 1} 天</span>
-              <span>{safeFormat(parseISO(dateStr), 'MM/dd')}</span>
+              <div className="flex flex-col items-center">
+                <span className="text-[10px] uppercase font-bold tracking-wider opacity-70 mb-0.5">第 {idx + 1} 天</span>
+                <span className="text-base">{safeFormat(parseISO(dateStr), 'MM/dd')}</span>
+                <div className={cn(
+                  "mt-1 px-2 py-0.5 rounded-full text-[10px] font-bold transition-all",
+                  activeDate === dateStr 
+                    ? "bg-white/20 text-white" 
+                    : (groupedItineraries[dateStr]?.length || 0) > 0 
+                      ? "bg-stone-100 text-stone-600" 
+                      : "bg-stone-50 text-stone-300 opacity-50"
+                )}>
+                  {(groupedItineraries[dateStr]?.length || 0)} 行程
+                </div>
+              </div>
             </button>
           ))}
         </div>
