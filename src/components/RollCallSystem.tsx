@@ -54,10 +54,9 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
   }, []);
 
   const validItineraries = useMemo(() => {
+    if (!tripSettings) return []; // Strictly hide all if no trip is set
+    
     return itineraries.filter(it => {
-      if (!it.isMain) return false;
-      if (!tripSettings) return true; // If no trip setting, arguably we can show all, or return false to strict enforce it. Let's return false strictly to match the prompt.
-      
       const startObj = it.startTime instanceof Timestamp ? it.startTime.toDate() : new Date(it.startTime);
       if (isNaN(startObj.getTime())) return false;
       
@@ -66,12 +65,16 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
     });
   }, [itineraries, tripSettings]);
 
+  const selectableItineraries = useMemo(() => {
+    return validItineraries.filter(it => it.isMain);
+  }, [validItineraries]);
+
   // If the currently selected itinerary is no longer valid, clear it
   useEffect(() => {
-    if (selectedItineraryId && !validItineraries.find(it => it.id === selectedItineraryId)) {
+    if (selectedItineraryId && !selectableItineraries.find(it => it.id === selectedItineraryId)) {
       setSelectedItineraryId('');
     }
-  }, [validItineraries, selectedItineraryId]);
+  }, [selectableItineraries, selectedItineraryId]);
 
   const currentItinerary = itineraries.find(it => it.id === selectedItineraryId);
   
@@ -110,7 +113,7 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
 
   const getDivergentItinerary = (memberId: string) => {
     const now = new Date();
-    return itineraries.find(it => {
+    return validItineraries.find(it => { // Use validItineraries list instead of raw itineraries
       if (it.isMain || !it.assignedMemberIds?.includes(memberId)) return false;
       const start = it.startTime?.toDate?.() || new Date(it.startTime);
       if (start > now) return false;
@@ -139,7 +142,7 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
             className="bg-white border border-stone-200 px-6 py-2 rounded-full text-sm font-medium focus:outline-none focus:ring-2 focus:ring-stone-900/5 shadow-sm"
           >
             <option value="">選擇要點名的行程</option>
-            {validItineraries.map(it => (
+            {selectableItineraries.map(it => (
               <option key={it.id} value={it.id}>{it.title}</option>
             ))}
           </select>
