@@ -1,64 +1,48 @@
-import { Member, Itinerary, RollCall } from '../types';
-import { Users, Calendar, CheckCircle, AlertCircle } from 'lucide-react';
+import { Member, Itinerary, RollCall, Group } from '../types';
+import { Users, Calendar, CheckCircle, AlertCircle, Crown } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '../lib/utils';
-import { 
-  PieChart,
-  Pie,
-  Cell,
-  Tooltip,
-  ResponsiveContainer
-} from 'recharts';
 
 interface DashboardProps {
   members: Member[];
   itineraries: Itinerary[];
   rollCalls: RollCall[];
+  groups: Group[];
 }
 
-export default function Dashboard({ members, itineraries, rollCalls }: DashboardProps) {
+export default function Dashboard({ members, itineraries, rollCalls, groups }: DashboardProps) {
   const totalMembers = members.length;
-  const totalItineraries = itineraries.length;
+  // ... rest of the logic ...
   
-  // Calculate dietary stats
-  const vegetarianCount = members.filter(m => 
-    m.dietaryHabits?.toLowerCase().includes('素') || 
-    m.dietaryHabits?.toLowerCase().includes('veg')
+  // Group summary logic
+  const groupSummaries = groups.map(group => {
+    const groupMembers = members.filter(m => m.groupId === group.id);
+    const leader = groupMembers.find(m => m.isLeader);
+    return {
+      ...group,
+      count: groupMembers.length,
+      leaderName: leader?.name || '未設定'
+    };
+  });
+
+  // Calculate trip duration counts based on tags
+  const nineDayCount = members.filter(m => 
+    m.tags?.some(tag => tag.toLowerCase().includes('9天') || tag.toLowerCase().includes('9d'))
   ).length;
 
-  // Calculate current divergent members
-  const now = new Date();
-  const currentItineraries = itineraries.filter(it => {
-    const start = it.startTime?.toDate?.() || new Date(it.startTime);
-    if (!it.endTime) {
-      // If no end time, assume it's current if it started in the last 3 hours
-      const threeHoursAgo = new Date(now.getTime() - 3 * 60 * 60 * 1000);
-      return now >= start && start >= threeHoursAgo;
-    }
-    const end = it.endTime?.toDate?.() || new Date(it.endTime);
-    return now >= start && now <= end;
-  });
+  const threeDayCount = members.filter(m => 
+    m.tags?.some(tag => tag.toLowerCase().includes('3天') || tag.toLowerCase().includes('3d'))
+  ).length;
 
-  const divergentMembers = new Set<string>();
-  currentItineraries.forEach(it => {
-    if (!it.isMain && it.assignedMemberIds) {
-      it.assignedMemberIds.forEach(id => divergentMembers.add(id));
-    }
-  });
+  // 5-day is the default if no 9-day or 3-day tag is present
+  const fiveDayCount = totalMembers - (nineDayCount + threeDayCount);
 
   const stats = [
     { label: '總人數', value: totalMembers, icon: Users, color: 'text-blue-600' },
-    { label: '總行程數', value: totalItineraries, icon: Calendar, color: 'text-orange-600' },
-    { label: '素食者', value: vegetarianCount, icon: AlertCircle, color: 'text-green-600' },
-    { label: '目前脫隊人數', value: divergentMembers.size, icon: CheckCircle, color: 'text-purple-600' },
+    { label: '5天行程', value: fiveDayCount, icon: Calendar, color: 'text-green-600' },
+    { label: '9天行程', value: nineDayCount, icon: Calendar, color: 'text-stone-600' },
+    { label: '其他行程', value: threeDayCount, icon: Calendar, color: 'text-purple-600' },
   ];
-
-  const dietaryData = [
-    { name: '素食', value: vegetarianCount },
-    { name: '葷食', value: totalMembers - vegetarianCount },
-  ];
-
-  const COLORS = ['#10b981', '#e5e7eb'];
 
   return (
     <div className="space-y-8">
@@ -81,70 +65,33 @@ export default function Dashboard({ members, itineraries, rollCalls }: Dashboard
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="bg-white p-8 rounded-3xl border border-stone-200 shadow-sm min-w-0">
-          <h3 className="text-xl font-serif mb-6">飲食偏好分佈</h3>
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-              <PieChart>
-                <Pie
-                  data={dietaryData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={80}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {dietaryData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="flex justify-center gap-8 mt-4">
-            {dietaryData.map((entry, index) => (
-              <div key={entry.name} className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[index] }}></div>
-                <span className="text-sm text-stone-600">{entry.name}: {entry.value}</span>
+      {/* Group Summary Section */}
+      <div className="bg-white p-8 rounded-3xl border border-stone-200 shadow-sm">
+        <h3 className="text-xl font-serif mb-6 flex items-center gap-2">
+          <Users className="w-5 h-5 text-stone-400" />
+          各小組人數與組長
+        </h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {groupSummaries.map((group) => (
+            <div key={group.id} className="p-5 rounded-2xl bg-stone-50 border border-stone-100 flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-stone-900">{group.name}</span>
+                <span className="px-2 py-0.5 bg-white border border-stone-200 rounded-lg text-xs font-bold text-stone-500 shadow-sm">
+                  {group.count} 人
+                </span>
               </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="bg-white p-8 rounded-3xl border border-stone-200 shadow-sm">
-          <h3 className="text-xl font-serif mb-6">即將到來的行程</h3>
-          <div className="space-y-4">
-            {itineraries
-              .filter(it => (it.startTime?.toDate?.() || new Date(it.startTime)) > now)
-              .slice(0, 5)
-              .map(it => (
-                <div key={it.id} className="flex items-center justify-between p-4 rounded-2xl bg-stone-50 border border-stone-100">
-                  <div>
-                    <p className="font-medium text-stone-900">{it.title}</p>
-                    <p className="text-xs text-stone-500">
-                      {format(it.startTime?.toDate?.() || new Date(it.startTime), 'MMM d, HH:mm')}
-                    </p>
-                  </div>
-                  <div className={cn(
-                    "px-3 py-1 rounded-full text-[10px] uppercase tracking-wider font-bold",
-                    it.type === 'attraction' ? "bg-blue-100 text-blue-700" :
-                    it.type === 'dining' ? "bg-orange-100 text-orange-700" :
-                    it.type === 'transit' ? "bg-stone-200 text-stone-700" :
-                    "bg-purple-100 text-purple-700"
-                  )}>
-                    {it.type}
-                  </div>
-                </div>
-              ))}
-            {itineraries.length === 0 && (
-              <p className="text-center text-stone-400 py-10">目前沒有即將到來的行程。</p>
-            )}
-          </div>
+              <div className="flex items-center gap-2 text-sm text-stone-600 py-1 px-3 bg-white/50 rounded-xl border border-dashed border-stone-200">
+                <Crown className="w-3.5 h-3.5 text-amber-400" />
+                <span className="text-xs font-medium">組長：{group.leaderName}</span>
+              </div>
+            </div>
+          ))}
+          {groups.length === 0 && (
+            <p className="col-span-full text-center py-10 text-stone-400">目前尚未建立任何組別。</p>
+          )}
         </div>
       </div>
+
     </div>
   );
 }

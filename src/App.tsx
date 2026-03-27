@@ -89,7 +89,7 @@ export default function App() {
       {/* Sidebar */}
       <aside 
         className={cn(
-          "fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-stone-200 transition-transform duration-300 lg:relative lg:translate-x-0",
+          "fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-stone-200 transition-transform duration-300 lg:static lg:translate-x-0 lg:flex-shrink-0",
           !isSidebarOpen && "-translate-x-full lg:hidden"
         )}
       >
@@ -136,6 +136,7 @@ export default function App() {
               members={members} 
               itineraries={itineraries} 
               rollCalls={rollCalls} 
+              groups={groups}
             />
           )}
           {currentView === 'members' && (

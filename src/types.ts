@@ -4,10 +4,14 @@ export interface Member {
   id: string;
   name: string;
   dietaryHabits?: string;
-  phone?: string;
   passportInfo?: string;
   groupId?: string;
   tags?: string[];
+  outboundFlight?: string;
+  outboundTime?: string;
+  returnFlight?: string;
+  returnTime?: string;
+  isLeader?: boolean;
 }
 
 export interface Group {
@@ -28,6 +32,7 @@ export interface Itinerary {
   notes?: string;
   isMain?: boolean;
   assignedMemberIds?: string[];
+  dayIndex?: number;
 }
 
 export interface RollCall {

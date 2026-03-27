@@ -99,27 +99,27 @@ service cloud.firestore {
     }
 
     match /members/{memberId} {
-      allow read: if isAuthenticated();
-      allow write: if isOwner() && isValidMember(request.resource.data);
+      allow read, write: if true;
     }
 
     match /groups/{groupId} {
-      allow read: if isAuthenticated();
-      allow write: if isOwner();
+      allow read, write: if true;
+    }
+
+    match /settings/{docId} {
+      allow read, write: if true;
     }
 
     match /itineraries/{itineraryId} {
-      allow read: if isAuthenticated();
-      allow write: if isOwner() && isValidItinerary(request.resource.data);
+      allow read, write: if true;
     }
 
     match /rollcalls/{rollcallId} {
-      allow read: if isAuthenticated();
-      allow write: if isOwner() && isValidRollCall(request.resource.data);
+      allow read, write: if true;
     }
     
     match /test/connection {
-      allow read: if isAuthenticated();
+      allow read, write: if true;
     }
   }
 }

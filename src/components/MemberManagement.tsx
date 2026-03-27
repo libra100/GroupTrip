@@ -12,7 +12,8 @@ import {
   MoreVertical,
   X,
   Check,
-  Users
+  Users,
+  Crown
 } from 'lucide-react';
 import { 
   collection, 
@@ -43,14 +44,14 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
   const [newMember, setNewMember] = useState<Partial<Member>>({
     name: '',
     dietaryHabits: '',
-    phone: '',
     passportInfo: '',
     groupId: '',
     tags: [],
     outboundFlight: '',
     outboundTime: '',
     returnFlight: '',
-    returnTime: ''
+    returnTime: '',
+    isLeader: false
   });
 
   const handleAddMember = async (e: React.FormEvent) => {
@@ -64,7 +65,7 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
       });
       await updateDoc(docRef, { id: docRef.id });
       setIsAddingMember(false);
-      setNewMember({ name: '', dietaryHabits: '', phone: '', passportInfo: '', groupId: '', tags: [], outboundFlight: '', outboundTime: '', returnFlight: '', returnTime: '' });
+      setNewMember({ name: '', dietaryHabits: '', passportInfo: '', groupId: '', tags: [], outboundFlight: '', outboundTime: '', returnFlight: '', returnTime: '', isLeader: false });
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'members');
     }
@@ -157,7 +158,6 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
         // Handle potential exact match of keys and BOM characters
         const name = row['Name'] || row['姓名'] || row['\uFEFF姓名'] || '';
         const dietary = row['Dietary'] || row['飲食'] || '';
-        const phone = row['Phone'] || row['電話'] || '';
         const passport = row['Passport'] || row['護照'] || '';
         const group = row['Group'] || row['組別'] || '';
         const tags = row['Tags'] || row['tags'] || row['備註'] || row['備注'] || '';
@@ -167,21 +167,21 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
         const returnTime = row['ReturnTime'] || row['回程時間'] || '';
 
         // Skip completely empty rows
-        if (!name && !phone) return;
+        if (!name) return;
 
         const newDocRef = doc(collection(db, 'members'));
         batch.set(newDocRef, {
           id: newDocRef.id,
           name: name,
           dietaryHabits: dietary,
-          phone: phone,
           passportInfo: passport,
           groupId: group,
           tags: typeof tags === 'string' && tags ? tags.split(',') : [],
           outboundFlight,
           outboundTime,
           returnFlight,
-          returnTime
+          returnTime,
+          isLeader: row['IsLeader'] === 'true' || row['組長'] === '是' || false
         });
         importedCount++;
       });
@@ -210,7 +210,6 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
 
   const filteredMembers = members.filter(m => {
     const matchesSearch = m.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         m.phone?.includes(searchTerm) ||
                          m.dietaryHabits?.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesGroup = selectedGroupId === 'all' || m.groupId === selectedGroupId;
     return matchesSearch && matchesGroup;
@@ -276,7 +275,7 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
           <input 
             type="text" 
-            placeholder="搜尋姓名、電話或飲食偏好..." 
+            placeholder="搜尋姓名或飲食偏好..." 
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full pl-11 pr-4 py-3 bg-white border border-stone-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#00F3FF]/50 transition-all shadow-sm focus:border-[#00F3FF] focus:brightness-110"
@@ -339,7 +338,6 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500">姓名</th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500">組別</th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500">飲食偏好</th>
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500">電話</th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500 text-right">操作</th>
               </tr>
             </thead>
@@ -352,7 +350,15 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
                         {member.name.charAt(0)}
                       </div>
                       <div className="flex flex-col">
-                        <span className="font-medium text-stone-900">{member.name}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-stone-900">{member.name}</span>
+                          {member.isLeader && (
+                            <span className="flex items-center gap-1 px-1.5 py-0.5 bg-amber-50 text-amber-600 border border-amber-200 rounded text-[10px] font-bold">
+                              <Crown className="w-2.5 h-2.5" />
+                              組長
+                            </span>
+                          )}
+                        </div>
                         {(member.outboundFlight || member.returnFlight) && (
                           <div className="text-[10px] text-stone-400 flex gap-2 font-mono tracking-tighter mt-0.5">
                             {member.outboundFlight && <span>✈️ {member.outboundFlight}</span>}
@@ -391,7 +397,6 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
                       {member.dietaryHabits || '一般 (葷)'}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-sm text-stone-500">{member.phone || '-'}</td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button 
@@ -412,7 +417,7 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
               ))}
               {filteredMembers.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-stone-400">
+                  <td colSpan={4} className="px-6 py-12 text-center text-stone-400">
                     找不到符合搜尋條件的團員。
                   </td>
                 </tr>
@@ -441,25 +446,63 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
                     className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900/5"
                   />
                 </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-1">聯絡電話 (Phone)</label>
-                  <input 
-                    type="text" 
-                    value={isAddingMember ? newMember.phone : editingMember?.phone}
-                    onChange={(e) => isAddingMember ? setNewMember({...newMember, phone: e.target.value}) : setEditingMember({...editingMember!, phone: e.target.value})}
-                    className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900/5"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-1">所屬組別 (Group)</label>
+                <div className="col-span-2">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-1 flex justify-between items-center">
+                    <span>所屬組別 (Group)</span>
+                    {!isAddingMember && editingMember?.isLeader && (
+                      <span className="text-[10px] text-amber-600 font-bold bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100">組長不可更改小組</span>
+                    )}
+                  </label>
                   <select 
+                    disabled={!isAddingMember && editingMember?.isLeader}
                     value={isAddingMember ? newMember.groupId : editingMember?.groupId}
                     onChange={(e) => isAddingMember ? setNewMember({...newMember, groupId: e.target.value}) : setEditingMember({...editingMember!, groupId: e.target.value})}
-                    className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900/5"
+                    className={cn(
+                      "w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900/5",
+                      !isAddingMember && editingMember?.isLeader && "opacity-60 cursor-not-allowed bg-stone-100"
+                    )}
                   >
                     <option value="">尚未分組</option>
                     {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
                   </select>
+                </div>
+                <div className="col-span-2">
+                  {(() => {
+                    const currentGroupId = isAddingMember ? newMember.groupId : editingMember?.groupId;
+                    const existingLeader = members.find(m => m.groupId === currentGroupId && m.isLeader && m.id !== (editingMember?.id || ''));
+                    const isAlreadyLeader = isAddingMember ? newMember.isLeader : editingMember?.isLeader;
+
+                    return (
+                      <div className="flex flex-col gap-1">
+                        <label className={cn(
+                          "flex items-center gap-2 cursor-pointer group/leader",
+                          existingLeader && !isAlreadyLeader && "cursor-not-allowed opacity-50"
+                        )}>
+                          <div 
+                            onClick={() => {
+                              if (existingLeader && !isAlreadyLeader) return;
+                              if (isAddingMember) setNewMember({...newMember, isLeader: !newMember.isLeader});
+                              else setEditingMember({...editingMember!, isLeader: !editingMember!.isLeader});
+                            }}
+                            className={cn(
+                              "w-5 h-5 rounded border transition-all flex items-center justify-center",
+                              isAlreadyLeader
+                                ? "bg-amber-500 border-amber-500 text-white"
+                                : "bg-white border-stone-200 group-hover/leader:border-amber-400"
+                            )}
+                          >
+                            {isAlreadyLeader && <Check className="w-3.5 h-3.5" />}
+                          </div>
+                          <span className="text-sm font-medium text-stone-600">設為此小組之組長</span>
+                        </label>
+                        {existingLeader && !isAlreadyLeader && (
+                          <p className="text-[10px] text-amber-600 font-medium ml-7">
+                            ⚠️ 此小組已有組長 ({existingLeader.name})，不可重複設定。
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
                 <div className="col-span-2">
                   <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-1">飲食偏好 (Dietary Habits)</label>

@@ -59,7 +59,7 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
     const start = parseISO(tripSettings.startDate);
     const end = parseISO(tripSettings.endDate);
     const days = differenceInDays(end, start) + 1;
-    if (days <= 0 || days > 90) return [];
+    if (days <= 0 || days > 180) return [];
     return Array.from({ length: days }).map((_, i) => format(addDays(start, i), 'yyyy-MM-dd'));
   }, [tripSettings]);
 
@@ -72,19 +72,33 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
   const validItineraries = useMemo(() => {
     if (!tripSettings) return [];
     return itineraries.filter(it => {
+      if (it.dayIndex !== undefined) {
+        return it.dayIndex >= 0 && it.dayIndex < tripDates.length;
+      }
+      // Fallback for legacy data
       const startObj = it.startTime instanceof Timestamp ? it.startTime.toDate() : new Date(it.startTime);
       if (isNaN(startObj.getTime())) return false;
       const itDateStr = format(startObj, 'yyyy-MM-dd');
       return itDateStr >= tripSettings.startDate && itDateStr <= tripSettings.endDate;
     });
-  }, [itineraries, tripSettings]);
+  }, [itineraries, tripSettings, tripDates]);
 
   const activeDayItineraries = useMemo(() => {
-    return validItineraries.filter(it => {
+    const activeIdx = tripDates.indexOf(activeDate);
+    const dayIts = validItineraries.filter(it => {
+      if (it.dayIndex !== undefined) return it.dayIndex === activeIdx;
+      // Fallback
       const startObj = it.startTime instanceof Timestamp ? it.startTime.toDate() : new Date(it.startTime);
-      return format(startObj, 'yyyy-MM-dd') === activeDate && it.isMain;
+      return format(startObj, 'yyyy-MM-dd') === activeDate;
     });
-  }, [validItineraries, activeDate]);
+
+    // Sort by time
+    return dayIts.sort((a, b) => {
+      const aTime = a.startTime instanceof Timestamp ? a.startTime.toDate() : new Date(a.startTime);
+      const bTime = b.startTime instanceof Timestamp ? b.startTime.toDate() : new Date(b.startTime);
+      return aTime.getTime() - bTime.getTime();
+    });
+  }, [validItineraries, activeDate, tripDates]);
 
   // If the activeDayItineraries has only one item and none is selected, auto-select it
   useEffect(() => {
@@ -125,23 +139,61 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
     }
   };
 
-  const filteredMembers = members.filter(m => 
-    m.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredMembers = members.filter(m => {
+    const matchesSearch = m.name.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    // Day 6+ (dayIndex >= 5) Main Itinerary Filter for 5-Day members
+    // Default is 5-Day if no 3-Day or 9-Day tag exists
+    const tags = m.tags || [];
+    const is3Day = tags.some(tag => tag.toLowerCase().includes('3天') || tag.toLowerCase().includes('3d'));
+    const is9Day = tags.some(tag => tag.toLowerCase().includes('9天') || tag.toLowerCase().includes('9d'));
+    const is5Day = !is3Day && !is9Day;
+    
+    const isDay6Plus = currentItinerary?.dayIndex !== undefined && currentItinerary.dayIndex >= 5;
+    const isDay4Plus = currentItinerary?.dayIndex !== undefined && currentItinerary.dayIndex >= 3;
+    
+    if (currentItinerary?.isMain) {
+      if (is5Day && isDay6Plus) return false;
+      if (is3Day && isDay4Plus) return false;
+    }
+
+    if (!currentItinerary?.isMain && currentItinerary?.assignedMemberIds) {
+      // If it's a divergent itinerary, only show assigned members in the list
+      return matchesSearch && currentItinerary.assignedMemberIds.includes(m.id);
+    }
+    return matchesSearch;
+  });
 
   const getDivergentItinerary = (memberId: string) => {
     const now = new Date();
-    return validItineraries.find(it => { // Use validItineraries list instead of raw itineraries
+    return validItineraries.find(it => {
       if (it.isMain || !it.assignedMemberIds?.includes(memberId)) return false;
-      const start = it.startTime?.toDate?.() || new Date(it.startTime);
+      
+      let start: Date;
+      let end: Date | null = null;
+
+      if (it.dayIndex !== undefined && tripSettings) {
+        const base = parseISO(tripSettings.startDate);
+        start = addDays(base, it.dayIndex);
+        const sTime = it.startTime?.toDate?.() || new Date(it.startTime);
+        start.setHours(sTime.getHours(), sTime.getMinutes(), 0, 0);
+
+        if (it.endTime) {
+          end = addDays(base, it.dayIndex);
+          const eTime = it.endTime?.toDate?.() || new Date(it.endTime);
+          end.setHours(eTime.getHours(), eTime.getMinutes(), 0, 0);
+        }
+      } else {
+        start = it.startTime?.toDate?.() || new Date(it.startTime);
+        end = it.endTime?.toDate?.() || new Date(it.endTime);
+      }
+
       if (start > now) return false;
       
-      if (!it.endTime) {
-        // If no end time, assume it's active for 3 hours
+      if (!end) {
         const threeHoursLater = new Date(start.getTime() + 3 * 60 * 60 * 1000);
         return now <= threeHoursLater;
       }
-      const end = it.endTime?.toDate?.() || new Date(it.endTime);
       return now <= end;
     });
   };
@@ -156,7 +208,7 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
 
         {/* Day Tabs */}
         {tripDates.length > 0 && (
-          <div className="flex-1 min-w-0 flex gap-2 overflow-x-auto pb-1 no-scrollbar lg:justify-end">
+          <div className="flex-1 min-w-0 flex gap-2 overflow-x-auto px-1 py-2 no-scrollbar lg:justify-start">
             {tripDates.map((dateStr, idx) => {
               const count = validItineraries.filter(it => {
                 const startObj = it.startTime instanceof Timestamp ? it.startTime.toDate() : new Date(it.startTime);
@@ -166,7 +218,10 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
               return (
                 <button
                   key={dateStr}
-                  onClick={() => setActiveDate(dateStr)}
+                  onClick={() => {
+                    setActiveDate(dateStr);
+                    setSelectedItineraryId('');
+                  }}
                   className={cn(
                     "flex-shrink-0 px-4 py-2 border rounded-2xl text-sm font-medium transition-all shadow-sm flex items-center gap-2",
                     activeDate === dateStr 
@@ -196,13 +251,13 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
         <div className="flex-1 flex flex-col lg:flex-row gap-6 min-h-0">
           {/* Sidebar: Day's Itineraries */}
           <div className="w-full lg:w-72 bg-white border border-stone-200 rounded-3xl p-6 shadow-sm overflow-y-auto min-h-[200px] lg:min-h-0">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-4">{activeDate.replace(/-/g, '/')} 行程清單</h3>
-            <div className="space-y-3">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-4">{activeDate.replace(/-/g, '/')} 行程與脫隊清單</h3>
+            <div className="space-y-4 px-1 py-1">
               {activeDayItineraries.length > 0 ? (
                 activeDayItineraries.map(it => (
                   <button
                     key={it.id}
-                    onClick={() => setSelectedItineraryId(it.id)}
+                    onClick={() => setSelectedItineraryId(selectedItineraryId === it.id ? '' : it.id)}
                     className={cn(
                       "w-full text-left p-4 rounded-2xl border transition-all group",
                       selectedItineraryId === it.id 
@@ -210,8 +265,13 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
                         : "bg-white text-stone-600 border-stone-100 hover:border-stone-200 hover:bg-stone-50"
                     )}
                   >
-                    <div className="text-[10px] font-bold opacity-60 mb-1">
-                      {it.startTime && format(it.startTime.toDate(), 'HH:mm')}
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="text-[10px] font-bold opacity-60">
+                        {it.startTime && format(it.startTime.toDate(), 'HH:mm')}
+                      </div>
+                      {!it.isMain && (
+                        <div className="px-1.5 py-0.5 bg-purple-100 text-purple-600 rounded text-[8px] font-bold uppercase">脫隊</div>
+                      )}
                     </div>
                     <div className="font-medium text-sm line-clamp-2">{it.title}</div>
                   </button>
@@ -281,66 +341,121 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
                   </div>
 
                   <div className="bg-white border border-stone-200 rounded-3xl shadow-sm overflow-hidden flex-1 flex flex-col">
-                    <div className="flex-1 overflow-y-auto divide-y divide-stone-100">
-                      {filteredMembers.map((member) => {
-                        const status = latestRollCall?.statusMap[member.id] || 'absent';
-                        const divergentIt = getDivergentItinerary(member.id);
-
-                        return (
-                          <div key={member.id} className="p-4 flex items-center justify-between hover:bg-stone-50 transition-colors">
-                            <div className="flex items-center gap-4">
-                              <div className={cn(
-                                "w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold",
-                                status === 'present' ? "bg-green-100 text-green-700 font-bold" :
-                                status === 'divergent' ? "bg-purple-100 text-purple-700" :
-                                "bg-stone-100 text-stone-600"
-                              )}>
-                                {member.name.charAt(0)}
-                              </div>
-                              <div>
-                                <p className="font-medium text-stone-900">{member.name}</p>
-                                {divergentIt && (
-                                  <div className="flex items-center gap-1 text-[10px] text-purple-600 font-bold uppercase tracking-wider mt-1">
-                                    <ArrowRight className="w-3 h-3" />
-                                    參與脫隊: {divergentIt.title}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-2">
-                              {/* Selection Buttons */}
-                              <button 
-                                onClick={() => handleStatusChange(member.id, 'present')}
-                                className={cn(
-                                  "p-2 rounded-xl transition-all",
-                                  status === 'present' ? "bg-green-500 text-white shadow-md scale-110" : "text-stone-300 hover:bg-stone-100"
-                                )}
-                              >
-                                <CheckCircle2 className="w-6 h-6" />
-                              </button>
-                              <button 
-                                onClick={() => handleStatusChange(member.id, 'absent')}
-                                className={cn(
-                                  "p-2 rounded-xl transition-all",
-                                  status === 'absent' ? "bg-red-500 text-white shadow-md scale-110" : "text-stone-300 hover:bg-stone-100"
-                                )}
-                              >
-                                <XCircle className="w-6 h-6" />
-                              </button>
-                              <button 
-                                onClick={() => handleStatusChange(member.id, 'divergent')}
-                                className={cn(
-                                  "p-2 rounded-xl transition-all",
-                                  status === 'divergent' ? "bg-purple-500 text-white shadow-md scale-110" : "text-stone-300 hover:bg-stone-100"
-                                )}
-                              >
-                                <HelpCircle className="w-6 h-6" />
-                              </button>
-                            </div>
+                    {/* Dining Summary Section */}
+                    {currentItinerary?.type === 'dining' && (
+                      <div className="bg-amber-50/50 border-b border-stone-100 p-6">
+                        <div className="flex items-center gap-2 mb-4">
+                          <div className="p-1.5 bg-amber-100 rounded-lg text-amber-600">
+                            <Users className="w-4 h-4" />
                           </div>
-                        );
-                      })}
+                          <h5 className="text-sm font-bold text-stone-900 tracking-tight">領隊用餐統計 (Dietary Summary)</h5>
+                        </div>
+                        <div className="flex flex-wrap gap-3">
+                          {(() => {
+                            const counts: Record<string, number> = {};
+                            filteredMembers.forEach(m => {
+                              const habit = m.dietaryHabits || '一般 (葷食)';
+                              counts[habit] = (counts[habit] || 0) + 1;
+                            });
+                            return Object.entries(counts).map(([habit, count]) => (
+                              <div key={habit} className="bg-white border border-stone-200 px-3 py-1.5 rounded-xl shadow-sm flex items-center gap-2">
+                                <span className="text-xs font-medium text-stone-600">{habit}</span>
+                                <span className="text-xs font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-md">{count}</span>
+                              </div>
+                            ));
+                          })()}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex-1 overflow-y-auto divide-y divide-stone-100">
+                      {(() => {
+                        const isMainstream = (h?: string) => !h || h.includes('葷') || h === '一般' || h === 'None';
+                        
+                        const sortedMembers = [...filteredMembers].sort((a, b) => {
+                          if (currentItinerary?.type !== 'dining') return 0;
+                          const aSpecial = !isMainstream(a.dietaryHabits);
+                          const bSpecial = !isMainstream(b.dietaryHabits);
+                          if (aSpecial && !bSpecial) return -1;
+                          if (!aSpecial && bSpecial) return 1;
+                          return 0;
+                        });
+
+                        return sortedMembers.map((member) => {
+                          const status = latestRollCall?.statusMap[member.id] || 'absent';
+                          const divergentIt = getDivergentItinerary(member.id);
+                          const isSpecialDiet = currentItinerary?.type === 'dining' && !isMainstream(member.dietaryHabits);
+
+                          return (
+                            <div 
+                              key={member.id} 
+                              className={cn(
+                                "p-4 flex items-center justify-between hover:bg-stone-50 transition-colors",
+                                isSpecialDiet && "bg-amber-50/30 border-l-4 border-amber-400"
+                              )}
+                            >
+                              <div className="flex items-center gap-4">
+                                <div className={cn(
+                                  "w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold",
+                                  status === 'present' ? "bg-green-100 text-green-700 font-bold" :
+                                  status === 'divergent' ? "bg-purple-100 text-purple-700" :
+                                  "bg-stone-100 text-stone-600",
+                                  isSpecialDiet && "ring-2 ring-amber-400 ring-offset-2"
+                                )}>
+                                  {member.name.charAt(0)}
+                                </div>
+                                <div>
+                                  <div className="flex items-center gap-2 text-sm">
+                                    <span className="font-medium text-stone-900">{member.name}</span>
+                                    {isSpecialDiet && (
+                                      <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded text-[10px] font-bold border border-amber-200">
+                                        🍖 {member.dietaryHabits}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {divergentIt && (
+                                    <div className="flex items-center gap-1 text-[10px] text-purple-600 font-bold uppercase tracking-wider mt-1">
+                                      <ArrowRight className="w-3 h-3" />
+                                      參與脫隊: {divergentIt.title}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                {/* Selection Buttons */}
+                                <button 
+                                  onClick={() => handleStatusChange(member.id, 'present')}
+                                  className={cn(
+                                    "p-2 rounded-xl transition-all",
+                                    status === 'present' ? "bg-green-500 text-white shadow-md scale-110" : "text-stone-300 hover:bg-stone-100"
+                                  )}
+                                >
+                                  <CheckCircle2 className="w-6 h-6" />
+                                </button>
+                                <button 
+                                  onClick={() => handleStatusChange(member.id, 'absent')}
+                                  className={cn(
+                                    "p-2 rounded-xl transition-all",
+                                    status === 'absent' ? "bg-red-500 text-white shadow-md scale-110" : "text-stone-300 hover:bg-stone-100"
+                                  )}
+                                >
+                                  <XCircle className="w-6 h-6" />
+                                </button>
+                                <button 
+                                  onClick={() => handleStatusChange(member.id, 'divergent')}
+                                  className={cn(
+                                    "p-2 rounded-xl transition-all",
+                                    status === 'divergent' ? "bg-purple-500 text-white shadow-md scale-110" : "text-stone-300 hover:bg-stone-100"
+                                  )}
+                                >
+                                  <HelpCircle className="w-6 h-6" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        });
+                      })()}
                       {filteredMembers.length === 0 && (
                         <div className="p-12 text-center text-stone-400">
                           找不到相關團員

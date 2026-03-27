@@ -106,17 +106,26 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
     }
   }, [tripDates, activeDate]);
 
-  // Group itineraries by date
+  // Group itineraries by dayIndex (fallback to date if dayIndex missing)
   const groupedItineraries = itineraries.reduce((groups, it) => {
-    if (!it.startTime) return groups;
-    const date = it.startTime instanceof Timestamp ? it.startTime.toDate() : new Date(it.startTime);
-    if (isNaN(date.getTime())) return groups; // skip invalid date
+    let dIndex = it.dayIndex;
     
-    const dateStr = safeFormat(date, 'yyyy-MM-dd');
-    if (!groups[dateStr]) {
-      groups[dateStr] = [];
+    if (dIndex === undefined && it.startTime) {
+      // Logic for legacy data: find index based on startTime date
+      const date = it.startTime instanceof Timestamp ? it.startTime.toDate() : new Date(it.startTime);
+      if (!isNaN(date.getTime()) && tripSettings?.startDate) {
+        const dateStr = safeFormat(date, 'yyyy-MM-dd');
+        dIndex = tripDates.indexOf(dateStr);
+      }
     }
-    groups[dateStr].push(it);
+
+    if (dIndex !== undefined && dIndex >= 0) {
+      const dateStrAtIdx = tripDates[dIndex];
+      if (dateStrAtIdx) {
+        if (!groups[dateStrAtIdx]) groups[dateStrAtIdx] = [];
+        groups[dateStrAtIdx].push(it);
+      }
+    }
     return groups;
   }, {} as Record<string, Itinerary[]>);
 
@@ -161,6 +170,7 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
         startTime: Timestamp.fromDate(startDateTime),
         endTime: endDateTime ? Timestamp.fromDate(endDateTime) : null,
         assignedMemberIds: newItem.isMain ? [] : selectedMembers,
+        dayIndex: tripDates.indexOf(activeDate),
         id: Date.now().toString()
       });
       await updateDoc(docRef, { id: docRef.id });
@@ -193,7 +203,8 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
         isMain: newItem.isMain,
         startTime: Timestamp.fromDate(startDateTime),
         endTime: endDateTime ? Timestamp.fromDate(endDateTime) : null,
-        assignedMemberIds: newItem.isMain ? [] : selectedMembers
+        assignedMemberIds: newItem.isMain ? [] : selectedMembers,
+        dayIndex: tripDates.indexOf(activeDate)
       });
       setEditing(null);
       setSelectedMembers([]);
@@ -322,7 +333,7 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
 
       {/* Day Tabs */}
       {tripDates.length > 0 && (
-        <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
+        <div className="flex gap-4 overflow-x-auto pb-6 px-4 py-4 no-scrollbar -mx-4">
           {tripDates.map((dateStr, idx) => (
             <button
               key={dateStr}
