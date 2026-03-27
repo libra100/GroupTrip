@@ -47,15 +47,15 @@ export default function Dashboard({ members, itineraries, rollCalls }: Dashboard
   });
 
   const stats = [
-    { label: 'Total Members', value: totalMembers, icon: Users, color: 'text-blue-600' },
-    { label: 'Total Events', value: totalItineraries, icon: Calendar, color: 'text-orange-600' },
-    { label: 'Vegetarians', value: vegetarianCount, icon: AlertCircle, color: 'text-green-600' },
-    { label: 'Currently Divergent', value: divergentMembers.size, icon: CheckCircle, color: 'text-purple-600' },
+    { label: '總人數', value: totalMembers, icon: Users, color: 'text-blue-600' },
+    { label: '總行程數', value: totalItineraries, icon: Calendar, color: 'text-orange-600' },
+    { label: '素食者', value: vegetarianCount, icon: AlertCircle, color: 'text-green-600' },
+    { label: '目前脫隊人數', value: divergentMembers.size, icon: CheckCircle, color: 'text-purple-600' },
   ];
 
   const dietaryData = [
-    { name: 'Vegetarian', value: vegetarianCount },
-    { name: 'Standard', value: totalMembers - vegetarianCount },
+    { name: '素食', value: vegetarianCount },
+    { name: '葷食', value: totalMembers - vegetarianCount },
   ];
 
   const COLORS = ['#10b981', '#e5e7eb'];
@@ -63,8 +63,8 @@ export default function Dashboard({ members, itineraries, rollCalls }: Dashboard
   return (
     <div className="space-y-8">
       <div>
-        <h2 className="text-3xl font-serif font-light mb-1">Trip Overview</h2>
-        <p className="text-stone-500">Real-time statistics for your group journey.</p>
+        <h2 className="text-3xl font-serif font-light mb-1">行程總覽</h2>
+        <p className="text-stone-500">團體旅行的即時統計資訊。</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -83,7 +83,7 @@ export default function Dashboard({ members, itineraries, rollCalls }: Dashboard
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="bg-white p-8 rounded-3xl border border-stone-200 shadow-sm min-w-0">
-          <h3 className="text-xl font-serif mb-6">Dietary Distribution</h3>
+          <h3 className="text-xl font-serif mb-6">飲食偏好分佈</h3>
           <div className="h-64 w-full">
             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
               <PieChart>
@@ -115,7 +115,7 @@ export default function Dashboard({ members, itineraries, rollCalls }: Dashboard
         </div>
 
         <div className="bg-white p-8 rounded-3xl border border-stone-200 shadow-sm">
-          <h3 className="text-xl font-serif mb-6">Upcoming Schedule</h3>
+          <h3 className="text-xl font-serif mb-6">即將到來的行程</h3>
           <div className="space-y-4">
             {itineraries
               .filter(it => (it.startTime?.toDate?.() || new Date(it.startTime)) > now)
@@ -140,7 +140,7 @@ export default function Dashboard({ members, itineraries, rollCalls }: Dashboard
                 </div>
               ))}
             {itineraries.length === 0 && (
-              <p className="text-center text-stone-400 py-10">No upcoming events scheduled.</p>
+              <p className="text-center text-stone-400 py-10">目前沒有即將到來的行程。</p>
             )}
           </div>
         </div>

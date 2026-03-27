@@ -94,7 +94,7 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
     const end = parseISO(tripSettings.endDate);
     const days = differenceInDays(end, start) + 1;
     
-    if (days <= 0 || days > 30) return []; // safety limit
+    if (days <= 0 || days > 90) return []; // safety limit
 
     return Array.from({ length: days }).map((_, i) => safeFormat(addDays(start, i), 'yyyy-MM-dd'));
   }, [tripSettings]);
@@ -261,7 +261,7 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
               title="設定旅遊日期"
             >
               <Settings className="w-4 h-4" />
-              {safeFormat(parseISO(tripSettings.startDate), 'MM/dd')} - {safeFormat(parseISO(tripSettings.endDate), 'MM/dd')}
+              {safeFormat(parseISO(tripSettings.startDate), 'yyyy/MM/dd')} - {safeFormat(parseISO(tripSettings.endDate), 'yyyy/MM/dd')}
             </button>
 
             <button 
@@ -328,7 +328,7 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
             >
               <div className="flex flex-col items-center">
                 <span className="text-[10px] uppercase font-bold tracking-wider opacity-70 mb-0.5">第 {idx + 1} 天</span>
-                <span className="text-base">{safeFormat(parseISO(dateStr), 'MM/dd')}</span>
+                <span className="text-base">{safeFormat(parseISO(dateStr), 'yyyy/MM/dd')}</span>
                 <div className={cn(
                   "mt-1 px-2 py-0.5 rounded-full text-[10px] font-bold transition-all",
                   activeDate === dateStr 
@@ -352,7 +352,7 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
             <div className="flex items-center gap-4">
               <div className="h-px flex-1 bg-stone-200" />
               <h3 className="text-sm font-bold uppercase tracking-[0.2em] text-stone-400">
-                {safeFormat(parseISO(activeDate), 'EEEE, MMMM do, yyyy')}
+                {safeFormat(parseISO(activeDate), 'yyyy/MM/dd (EEEE)')}
               </h3>
               <div className="h-px flex-1 bg-stone-200" />
             </div>
@@ -481,7 +481,7 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
             <div className="text-center py-20 text-stone-400 bg-white border border-stone-200 rounded-3xl shadow-sm border-dashed">
               <Calendar className="w-12 h-12 mx-auto mb-4 opacity-20" />
               <p>這個日期還沒有安排行程</p>
-              <p className="text-sm">{safeFormat(parseISO(activeDate), 'yyyy年MM月dd日')} 目前無任何行程</p>
+              <p className="text-sm">{safeFormat(parseISO(activeDate), 'yyyy/MM/dd')} 目前無任何行程</p>
             </div>
           )}
         </div>
@@ -553,7 +553,7 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
               {isAdding ? '新增行程' : '編輯行程'}
             </h3>
             <p className="text-stone-500 mb-6 font-medium">
-              行程日期: {safeFormat(parseISO(activeDate), 'yyyy年MM月dd日 (EEEE)')}
+              行程日期: {safeFormat(parseISO(activeDate), 'yyyy/MM/dd (EEEE)')}
             </p>
             <form onSubmit={isAdding ? handleAdd : handleUpdate} className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

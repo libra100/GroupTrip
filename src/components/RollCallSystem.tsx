@@ -59,7 +59,7 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
     const start = parseISO(tripSettings.startDate);
     const end = parseISO(tripSettings.endDate);
     const days = differenceInDays(end, start) + 1;
-    if (days <= 0 || days > 30) return [];
+    if (days <= 0 || days > 90) return [];
     return Array.from({ length: days }).map((_, i) => format(addDays(start, i), 'yyyy-MM-dd'));
   }, [tripSettings]);
 
@@ -176,7 +176,7 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
                 >
                   <div className="flex flex-col items-start leading-none">
                     <span className="text-[9px] uppercase font-bold tracking-wider opacity-60">D{idx + 1}</span>
-                    <span className="font-bold text-xs">{safeFormat(parseISO(dateStr), 'MM/dd')}</span>
+                    <span className="font-bold text-xs">{safeFormat(parseISO(dateStr), 'yyyy/MM/dd')}</span>
                   </div>
                   
                   <div className={cn(
@@ -196,7 +196,7 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
         <div className="flex-1 flex flex-col lg:flex-row gap-6 min-h-0">
           {/* Sidebar: Day's Itineraries */}
           <div className="w-full lg:w-72 bg-white border border-stone-200 rounded-3xl p-6 shadow-sm overflow-y-auto min-h-[200px] lg:min-h-0">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-4">{activeDate} 行程清單</h3>
+            <h3 className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-4">{activeDate.replace(/-/g, '/')} 行程清單</h3>
             <div className="space-y-3">
               {activeDayItineraries.length > 0 ? (
                 activeDayItineraries.map(it => (

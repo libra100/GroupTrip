@@ -522,7 +522,7 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
                       <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-400 mb-1">去程時間 (Outbound Time)</label>
                       <input 
                         type="text" 
-                        placeholder="例如: 2026-05-01 07:30"
+                        placeholder="例如: 2026/05/01 07:30"
                         value={isAddingMember ? newMember.outboundTime : editingMember?.outboundTime}
                         onChange={(e) => isAddingMember ? setNewMember({...newMember, outboundTime: e.target.value}) : setEditingMember({...editingMember!, outboundTime: e.target.value})}
                         className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900/5 text-sm"
@@ -542,7 +542,7 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
                       <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-400 mb-1">回程時間 (Return Time)</label>
                       <input 
                         type="text" 
-                        placeholder="例如: 2026-05-05 14:20"
+                        placeholder="例如: 2026/05/05 14:20"
                         value={isAddingMember ? newMember.returnTime : editingMember?.returnTime}
                         onChange={(e) => isAddingMember ? setNewMember({...newMember, returnTime: e.target.value}) : setEditingMember({...editingMember!, returnTime: e.target.value})}
                         className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900/5 text-sm"
