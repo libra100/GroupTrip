@@ -94,7 +94,7 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
     const end = parseISO(tripSettings.endDate);
     const days = differenceInDays(end, start) + 1;
     
-    if (days <= 0 || days > 90) return []; // safety limit
+    if (days <= 0 || days > 180) return []; // safety limit
 
     return Array.from({ length: days }).map((_, i) => safeFormat(addDays(start, i), 'yyyy-MM-dd'));
   }, [tripSettings]);
@@ -123,13 +123,21 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
   const handleSaveTripSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!tempSettings.startDate || !tempSettings.endDate) return;
-    if (tempSettings.startDate > tempSettings.endDate) {
+
+    const normalizeDate = (d: string) => d.replace(/\//g, '-');
+    const startNormalized = normalizeDate(tempSettings.startDate);
+    const endNormalized = normalizeDate(tempSettings.endDate);
+
+    if (startNormalized > endNormalized) {
       alert('End date must be after start date');
       return;
     }
 
     try {
-      await setDoc(doc(db, 'settings', 'tripSettings'), tempSettings);
+      await setDoc(doc(db, 'settings', 'tripSettings'), {
+        startDate: startNormalized,
+        endDate: endNormalized
+      });
       setIsSettingTrip(false);
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'settings');
@@ -500,26 +508,26 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
             
             <form onSubmit={handleSaveTripSettings} className="space-y-6">
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-1">出發日期 (Start Date)</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-1">出發日期 (yyyy/mm/dd)</label>
                 <input 
-                  type="date" 
+                  type="text" 
+                  placeholder="例如: 2026/03/27"
                   required
-                  max="9999-12-31"
-                  value={tempSettings.startDate}
+                  value={tempSettings.startDate.replace(/-/g, '/')}
                   onChange={(e) => setTempSettings({...tempSettings, startDate: e.target.value})}
-                  className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900/5"
+                  className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900/5 text-sm"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-1">結束日期 (End Date)</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-1">結束日期 (yyyy/mm/dd)</label>
                 <input 
-                  type="date" 
+                  type="text" 
+                  placeholder="例如: 2026/04/05"
                   required
-                  max="9999-12-31"
-                  value={tempSettings.endDate}
+                  value={tempSettings.endDate.replace(/-/g, '/')}
                   onChange={(e) => setTempSettings({...tempSettings, endDate: e.target.value})}
-                  className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900/5"
+                  className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900/5 text-sm"
                 />
               </div>
 
