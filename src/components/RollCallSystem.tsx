@@ -11,7 +11,9 @@ import {
   UserX,
   UserMinus,
   Calendar,
-  History
+  History,
+  Copy,
+  Check
 } from 'lucide-react';
 import { collection, addDoc, updateDoc, doc, Timestamp, setDoc, onSnapshot } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
@@ -39,6 +41,7 @@ interface RollCallSystemProps {
 export default function RollCallSystem({ rollCalls, itineraries, members }: RollCallSystemProps) {
   const [selectedItineraryId, setSelectedItineraryId] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [copySuccess, setCopySuccess] = useState(false);
   const [tripSettings, setTripSettings] = useState<TripSettings | null>(null);
   const [activeDate, setActiveDate] = useState<string>(safeFormat(new Date(), 'yyyy-MM-dd'));
 
@@ -155,6 +158,9 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
     if (currentItinerary?.isMain) {
       if (is5Day && isDay6Plus) return false;
       if (is3Day && isDay4Plus) return false;
+      
+      // Filter out excluded members
+      if (currentItinerary.excludedMemberIds?.includes(m.id)) return false;
     }
 
     if (!currentItinerary?.isMain && currentItinerary?.assignedMemberIds) {
@@ -163,6 +169,14 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
     }
     return matchesSearch;
   });
+
+  const handleCopyAllNames = () => {
+    if (filteredMembers.length === 0) return;
+    const names = filteredMembers.map(m => m.name).join(', ');
+    navigator.clipboard.writeText(names);
+    setCopySuccess(true);
+    setTimeout(() => setCopySuccess(false), 2000);
+  };
 
   const getDivergentItinerary = (memberId: string) => {
     const now = new Date();
@@ -196,6 +210,32 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
       }
       return now <= end;
     });
+  };
+
+  const getParticipantCount = (it: Itinerary) => {
+    if (!it.isMain) return it.assignedMemberIds?.length || 0;
+    
+    // For Main itineraries, count members who should be there on that day
+    return members.filter(m => {
+      const tags = m.tags || [];
+      const is3Day = tags.some(tag => tag.toLowerCase().includes('3天') || tag.toLowerCase().includes('3d'));
+      const is9Day = tags.some(tag => tag.toLowerCase().includes('9天') || tag.toLowerCase().includes('9d'));
+      const is5Day = !is3Day && !is9Day;
+      
+      const dayIdx = it.dayIndex;
+      if (dayIdx === undefined) return true;
+      
+      const isDay6Plus = dayIdx >= 5;
+      const isDay4Plus = dayIdx >= 3;
+      
+      if (is5Day && isDay6Plus) return false;
+      if (is3Day && isDay4Plus) return false;
+
+      // Filter out excluded members for Main itineraries
+      if (it.excludedMemberIds?.includes(m.id)) return false;
+      
+      return true;
+    }).length;
   };
 
   return (
@@ -269,9 +309,14 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
                       <div className="text-[10px] font-bold opacity-60">
                         {it.startTime && format(it.startTime.toDate(), 'HH:mm')}
                       </div>
-                      {!it.isMain && (
-                        <div className="px-1.5 py-0.5 bg-purple-100 text-purple-600 rounded text-[8px] font-bold uppercase">脫隊</div>
-                      )}
+                      <div className="flex items-center gap-1">
+                        <div className="px-1.5 py-0.5 bg-stone-100/50 text-stone-500 rounded text-[8px] font-bold">
+                          {getParticipantCount(it)}人
+                        </div>
+                        {!it.isMain && (
+                          <div className="px-1.5 py-0.5 bg-purple-100 text-purple-600 rounded text-[8px] font-bold uppercase">脫隊</div>
+                        )}
+                      </div>
                     </div>
                     <div className="font-medium text-sm line-clamp-2">{it.title}</div>
                   </button>
@@ -305,6 +350,13 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
                   
                   <div className="flex items-center gap-6">
                     <div className="flex flex-col items-center">
+                      <span className="text-[10px] font-bold text-stone-400 uppercase tracking-tighter">參與人數</span>
+                      <span className="text-xl font-bold text-stone-900 leading-none mt-1">
+                        {currentItinerary ? getParticipantCount(currentItinerary) : 0}
+                      </span>
+                    </div>
+                    <div className="w-px h-8 bg-stone-100 hidden sm:block" />
+                    <div className="flex flex-col items-center">
                       <span className="text-[10px] font-bold text-stone-400 uppercase tracking-tighter">已出席</span>
                       <span className="text-xl font-bold text-green-600 leading-none mt-1">
                         {Object.values(latestRollCall?.statusMap || {}).filter(s => s === 'present').length}
@@ -329,15 +381,31 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
 
                 {/* Member List Section */}
                 <div className="flex-1 flex flex-col gap-4 min-h-0 overflow-hidden">
-                  <div className="relative">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
-                    <input 
-                      type="text" 
-                      placeholder="搜尋團員姓名..." 
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="w-full pl-11 pr-4 py-3 bg-white border border-stone-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-stone-900/5 transition-all shadow-sm"
-                    />
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
+                      <input 
+                        type="text" 
+                        placeholder="搜尋團員姓名..." 
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="w-full pl-11 pr-4 py-3 bg-white border border-stone-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-stone-900/5 transition-all shadow-sm"
+                      />
+                    </div>
+                    <button 
+                      onClick={handleCopyAllNames}
+                      disabled={filteredMembers.length === 0}
+                      className={cn(
+                        "px-4 py-3 bg-white border border-stone-200 rounded-2xl text-stone-600 flex items-center gap-2 transition-all duration-200 ease-out shrink-0 font-medium text-sm shadow-sm",
+                        "hover:scale-[1.02] hover:shadow-[0_0_5px_rgba(0,0,0,0.1)]",
+                        "active:brightness-110 active:border-[#00F3FF]",
+                        "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:shadow-none",
+                        copySuccess && "text-green-600 border-green-200 shadow-none scale-100"
+                      )}
+                    >
+                      {copySuccess ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                      <span>{copySuccess ? '已複製' : '複製名單'}</span>
+                    </button>
                   </div>
 
                   <div className="bg-white border border-stone-200 rounded-3xl shadow-sm overflow-hidden flex-1 flex flex-col">

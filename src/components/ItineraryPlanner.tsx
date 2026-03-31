@@ -63,6 +63,7 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
     location: { address: string; navLink: string };
     notes: string;
     isMain: boolean;
+    excludedMemberIds: string[];
   }>({
     title: '',
     type: 'attraction',
@@ -70,7 +71,8 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
     endTimeStr: '',
     location: { address: '', navLink: '' },
     notes: '',
-    isMain: true
+    isMain: true,
+    excludedMemberIds: []
   });
 
   // Fetch trip settings
@@ -170,6 +172,7 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
         startTime: Timestamp.fromDate(startDateTime),
         endTime: endDateTime ? Timestamp.fromDate(endDateTime) : null,
         assignedMemberIds: newItem.isMain ? [] : selectedMembers,
+        excludedMemberIds: newItem.isMain ? selectedMembers : [],
         dayIndex: tripDates.indexOf(activeDate),
         id: Date.now().toString()
       });
@@ -177,7 +180,8 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
       setIsAdding(false);
       setNewItem({ 
         title: '', type: 'attraction', startTimeStr: '09:00', endTimeStr: '', 
-        location: { address: '', navLink: '' }, notes: '', isMain: true 
+        location: { address: '', navLink: '' }, notes: '', isMain: true,
+        excludedMemberIds: []
       });
       setSelectedMembers([]);
     } catch (error) {
@@ -204,6 +208,7 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
         startTime: Timestamp.fromDate(startDateTime),
         endTime: endDateTime ? Timestamp.fromDate(endDateTime) : null,
         assignedMemberIds: newItem.isMain ? [] : selectedMembers,
+        excludedMemberIds: newItem.isMain ? selectedMembers : [],
         dayIndex: tripDates.indexOf(activeDate)
       });
       setEditing(null);
@@ -254,9 +259,10 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
       endTimeStr: end ? safeFormat(end, 'HH:mm') : '',
       location: it.location || { address: '', navLink: '' },
       notes: it.notes || '',
-      isMain: it.isMain
+      isMain: it.isMain,
+      excludedMemberIds: it.excludedMemberIds || []
     });
-    setSelectedMembers(it.assignedMemberIds || []);
+    setSelectedMembers(it.isMain ? (it.excludedMemberIds || []) : (it.assignedMemberIds || []));
   };
 
   const dayItineraries = groupedItineraries[activeDate] || [];
@@ -289,7 +295,8 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
                 setEditing(null);
                 setNewItem({ 
                   title: '', type: 'attraction', startTimeStr: '09:00', endTimeStr: '', 
-                  location: { address: '', navLink: '' }, notes: '', isMain: true 
+                  location: { address: '', navLink: '' }, notes: '', isMain: true,
+                  excludedMemberIds: []
                 });
                 setSelectedMembers([]);
               }}
@@ -663,72 +670,74 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
                   />
                 </div>
 
-                {/* Member Selection for Divergent Itinerary */}
-                {!newItem.isMain && (
-                  <div className="md:col-span-2">
-                    <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-3">指派參與此脫隊行程的團員</label>
-                    
-                    {/* Select by Group */}
-                    <div className="flex flex-wrap gap-2 mb-4">
-                      {groups.map(group => {
-                        const groupMembers = members.filter(m => m.groupId === group.id);
-                        if (groupMembers.length === 0) return null;
-                        
-                        const allSelected = groupMembers.every(m => selectedMembers.includes(m.id));
-                        
-                        return (
-                          <button
-                            key={group.id}
-                            type="button"
-                            onClick={() => {
-                              const groupMemberIds = groupMembers.map(m => m.id);
-                              if (allSelected) {
-                                setSelectedMembers(prev => prev.filter(id => !groupMemberIds.includes(id)));
-                              } else {
-                                const newSelection = [...new Set([...selectedMembers, ...groupMemberIds])];
-                                setSelectedMembers(newSelection);
-                              }
-                            }}
-                            className={cn(
-                              "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border transition-all",
-                              allSelected 
-                                ? "bg-[#00F3FF]/10 text-[#00F3FF] border-[#00F3FF]" 
-                                : "bg-white text-stone-400 border-stone-200 hover:border-stone-400"
-                            )}
-                          >
-                            選取整組: {group.name}
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-48 overflow-y-auto p-4 bg-stone-50 border border-stone-200 rounded-2xl">
-                      {members.map(m => (
+                {/* Member Selection (Inclusion for Divergent, Exclusion for Main) */}
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-3">
+                    {newItem.isMain ? '排除不參加的團員 (例如用餐自理)' : '指派參與此脫隊行程的團員'}
+                  </label>
+                  
+                  {/* Select by Group */}
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    {groups.map(group => {
+                      const groupMembers = members.filter(m => m.groupId === group.id);
+                      if (groupMembers.length === 0) return null;
+                      
+                      const allSelected = groupMembers.every(m => selectedMembers.includes(m.id));
+                      
+                      return (
                         <button
-                          key={m.id}
+                          key={group.id}
                           type="button"
                           onClick={() => {
-                            if (selectedMembers.includes(m.id)) {
-                              setSelectedMembers(selectedMembers.filter(id => id !== m.id));
+                            const groupMemberIds = groupMembers.map(m => m.id);
+                            if (allSelected) {
+                              setSelectedMembers(prev => prev.filter(id => !groupMemberIds.includes(id)));
                             } else {
-                              setSelectedMembers([...selectedMembers, m.id]);
+                              const newSelection = [...new Set([...selectedMembers, ...groupMemberIds])];
+                              setSelectedMembers(newSelection);
                             }
                           }}
                           className={cn(
-                            "flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium transition-all border",
-                            selectedMembers.includes(m.id)
-                              ? "bg-stone-900 text-white border-stone-900"
-                              : "bg-white text-stone-600 border-stone-200 hover:border-stone-400"
+                            "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border transition-all",
+                            allSelected 
+                              ? (newItem.isMain ? "bg-red-50 text-red-500 border-red-200" : "bg-[#00F3FF]/10 text-[#00F3FF] border-[#00F3FF]")
+                              : "bg-white text-stone-400 border-stone-200 hover:border-stone-400"
                           )}
                         >
-                          {selectedMembers.includes(m.id) && <Check className="w-3 h-3" />}
-                          {m.name}
+                          {newItem.isMain ? '全排除: ' : '選取整組: '}{group.name}
                         </button>
-                      ))}
-                    </div>
-                    <p className="text-[10px] text-stone-400 mt-2">已選擇: {selectedMembers.length} 位參與者</p>
+                      );
+                    })}
                   </div>
-                )}
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-48 overflow-y-auto p-4 bg-stone-50 border border-stone-200 rounded-2xl">
+                    {members.map(m => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => {
+                          if (selectedMembers.includes(m.id)) {
+                            setSelectedMembers(selectedMembers.filter(id => id !== m.id));
+                          } else {
+                            setSelectedMembers([...selectedMembers, m.id]);
+                          }
+                        }}
+                        className={cn(
+                          "flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium transition-all border",
+                          selectedMembers.includes(m.id)
+                            ? (newItem.isMain ? "bg-red-500 text-white border-red-500" : "bg-stone-900 text-white border-stone-900")
+                            : "bg-white text-stone-600 border-stone-200 hover:border-stone-400"
+                        )}
+                      >
+                        {selectedMembers.includes(m.id) && (newItem.isMain ? <Plus className="w-3 h-3 rotate-45" /> : <Check className="w-3 h-3" />)}
+                        {m.name}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-stone-400 mt-2">
+                    {newItem.isMain ? `已排除 ${selectedMembers.length} 名團員 (其餘全員參加)` : `已指派 ${selectedMembers.length} 位參與者`}
+                  </p>
+                </div>
                </div>
 
               <div className="flex gap-3 pt-4">

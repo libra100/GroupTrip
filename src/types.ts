@@ -32,6 +32,7 @@ export interface Itinerary {
   notes?: string;
   isMain?: boolean;
   assignedMemberIds?: string[];
+  excludedMemberIds?: string[];
   dayIndex?: number;
 }
 
