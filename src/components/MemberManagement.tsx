@@ -176,7 +176,7 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
           dietaryHabits: dietary,
           passportInfo: passport,
           groupId: group,
-          tags: typeof tags === 'string' && tags ? tags.split(',') : [],
+          tags: typeof tags === 'string' && tags ? tags.split(',').map(t => t.trim()).filter(Boolean) : [],
           outboundFlight,
           outboundTime,
           returnFlight,
@@ -209,8 +209,13 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
   };
 
   const filteredMembers = members.filter(m => {
-    const matchesSearch = m.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         m.dietaryHabits?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch = 
+      m.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      m.dietaryHabits?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (Array.isArray(m.tags) 
+        ? m.tags.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase()))
+        : (typeof m.tags === 'string' && (m.tags as string).toLowerCase().includes(searchTerm.toLowerCase()))
+      );
     const matchesGroup = selectedGroupId === 'all' || m.groupId === selectedGroupId;
     return matchesSearch && matchesGroup;
   });
@@ -275,7 +280,7 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
           <input 
             type="text" 
-            placeholder="搜尋姓名或飲食偏好..." 
+            placeholder="搜尋姓名、飲食或標籤..." 
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full pl-11 pr-4 py-3 bg-white border border-stone-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#00F3FF]/50 transition-all shadow-sm focus:border-[#00F3FF] focus:brightness-110"
@@ -365,13 +370,19 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
                             {member.returnFlight && <span>🏠 {member.returnFlight}</span>}
                           </div>
                         )}
-                        {member.tags && member.tags.length > 0 && (
+                        {member.tags && (Array.isArray(member.tags) ? member.tags.length > 0 : !!member.tags) && (
                           <div className="flex gap-1 mt-1 flex-wrap">
-                            {member.tags.map((tag, idx) => (
-                              <span key={idx} className="px-1.5 py-0.5 bg-stone-100 text-stone-500 rounded text-[10px] font-medium border border-stone-200/60 shadow-sm">
-                                {tag.trim()}
+                            {Array.isArray(member.tags) ? (
+                              member.tags.map((tag, idx) => (
+                                <span key={idx} className="px-1.5 py-0.5 bg-stone-100 text-stone-500 rounded text-[10px] font-medium border border-stone-200/60 shadow-sm">
+                                  {tag.trim()}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="px-1.5 py-0.5 bg-stone-100 text-stone-500 rounded text-[10px] font-medium border border-stone-200/60 shadow-sm">
+                                {(member.tags as string).trim()}
                               </span>
-                            ))}
+                            )}
                           </div>
                         )}
                       </div>
@@ -441,6 +452,7 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
                   <input 
                     type="text" 
                     required
+                    autoFocus
                     value={isAddingMember ? newMember.name : editingMember?.name}
                     onChange={(e) => isAddingMember ? setNewMember({...newMember, name: e.target.value}) : setEditingMember({...editingMember!, name: e.target.value})}
                     className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900/5"

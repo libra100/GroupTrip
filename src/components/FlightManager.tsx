@@ -93,6 +93,13 @@ export default function FlightManager({ members, groups }: FlightManagerProps) {
       .sort((a, b) => {
         if (a.flightNo === '未填寫') return 1;
         if (b.flightNo === '未填寫') return -1;
+        
+        // Sort by member count (descending)
+        if (b.members.length !== a.members.length) {
+          return b.members.length - a.members.length;
+        }
+        
+        // Fallback to sorting by time and then flight number
         return a.time.localeCompare(b.time) || a.flightNo.localeCompare(b.flightNo);
       });
   }, [members, activeTab, searchTerm, showMissingOnly]);

@@ -143,7 +143,12 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
   };
 
   const filteredMembers = members.filter(m => {
-    const matchesSearch = m.name.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch = 
+      m.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (Array.isArray(m.tags) 
+        ? m.tags.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase()))
+        : (typeof m.tags === 'string' && (m.tags as string).toLowerCase().includes(searchTerm.toLowerCase()))
+      );
     
     // Day 6+ (dayIndex >= 5) Main Itinerary Filter for 5-Day members
     // Default is 5-Day if no 3-Day or 9-Day tag exists
@@ -386,7 +391,7 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
                       <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
                       <input 
                         type="text" 
-                        placeholder="搜尋團員姓名..." 
+                        placeholder="搜尋團員姓名或標籤..." 
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                         className="w-full pl-11 pr-4 py-3 bg-white border border-stone-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-stone-900/5 transition-all shadow-sm"
