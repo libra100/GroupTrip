@@ -7,7 +7,8 @@ import {
   Check,
   Edit2,
   Filter,
-  Users
+  Users,
+  MapPin
 } from 'lucide-react';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
@@ -77,7 +78,11 @@ export default function FlightManager({ members, groups }: FlightManagerProps) {
     // Filter by missing if needed
     if (showMissingOnly) {
       Object.keys(groups_dict).forEach(key => {
-        groups_dict[key] = groups_dict[key].filter(m => !m.outboundFlight || !m.outboundTime || !m.returnFlight || !m.returnTime);
+        groups_dict[key] = groups_dict[key].filter(m => {
+          const outboundDone = m.outboundFlight === '日本' || (m.outboundFlight && m.outboundTime);
+          const returnDone = m.returnFlight === '日本' || (m.returnFlight && m.returnTime);
+          return !outboundDone || !returnDone;
+        });
         if (groups_dict[key].length === 0) delete groups_dict[key];
       });
     }
@@ -189,16 +194,24 @@ export default function FlightManager({ members, groups }: FlightManagerProps) {
                   className="flex items-center justify-between p-6 cursor-pointer hover:bg-stone-50 transition-colors"
                 >
                   <div className="flex items-center gap-6">
-                    <div className={cn("w-12 h-12 rounded-2xl flex items-center justify-center", bgColorClass)}>
-                      {activeTab === 'outbound' ? <PlaneTakeoff className={colorClass} /> : <PlaneLanding className={colorClass} />}
+                    <div className={cn("w-12 h-12 rounded-2xl flex items-center justify-center", flightNo === '日本' ? "bg-stone-100" : bgColorClass)}>
+                      {flightNo === '日本' ? (
+                        <MapPin className="text-stone-500" />
+                      ) : activeTab === 'outbound' ? (
+                        <PlaneTakeoff className={colorClass} />
+                      ) : (
+                        <PlaneLanding className={colorClass} />
+                      )}
                     </div>
                     <div>
                       <div className="flex items-center gap-3">
-                        <h3 className="text-xl font-bold text-stone-900">{flightNo === '未填寫' ? '尚未填寫航班' : flightNo}</h3>
+                        <h3 className="text-xl font-bold text-stone-900">
+                          {flightNo === '未填寫' ? '尚未填寫航班' : flightNo === '日本' ? '在地成員 (日本)' : flightNo}
+                        </h3>
                         <span className="px-2 py-0.5 bg-stone-100 text-stone-500 rounded text-[10px] font-bold uppercase">{flightMembers.length} 人</span>
                       </div>
                       <p className="text-sm text-stone-500 flex items-center gap-2 mt-0.5">
-                        <span className="font-medium">{time || '時間未定'}</span>
+                        <span className="font-medium">{flightNo === '日本' ? '無需搭乘飛機' : (time || '時間未定')}</span>
                       </p>
                     </div>
                   </div>
