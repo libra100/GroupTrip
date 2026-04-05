@@ -51,7 +51,9 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
     outboundTime: '',
     returnFlight: '',
     returnTime: '',
-    isLeader: false
+    isLeader: false,
+    gender: '',
+    tripDays: undefined
   });
 
   const handleAddMember = async (e: React.FormEvent) => {
@@ -65,7 +67,7 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
       });
       await updateDoc(docRef, { id: docRef.id });
       setIsAddingMember(false);
-      setNewMember({ name: '', dietaryHabits: '', passportInfo: '', groupId: '', tags: [], outboundFlight: '', outboundTime: '', returnFlight: '', returnTime: '', isLeader: false });
+      setNewMember({ name: '', dietaryHabits: '', passportInfo: '', groupId: '', tags: [], outboundFlight: '', outboundTime: '', returnFlight: '', returnTime: '', isLeader: false, gender: '', tripDays: undefined });
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'members');
     }
@@ -181,7 +183,9 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
           outboundTime,
           returnFlight,
           returnTime,
-          isLeader: row['IsLeader'] === 'true' || row['組長'] === '是' || false
+          isLeader: row['IsLeader'] === 'true' || row['組長'] === '是' || false,
+          gender: row['Gender'] || row['性別'] || row['男女'] || '',
+          tripDays: Number(row['TripDays'] || row['天數'] || row['行程天數']) || undefined
         });
         importedCount++;
       });
@@ -271,6 +275,50 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
             <UserPlus className="w-4 h-4" />
             新增團員
           </button>
+          <button 
+            onClick={async () => {
+              if (!confirm("確定要將標籤中的『天數』同步到欄位嗎？\n(例如：9天 -> 9)")) return;
+              const batch = writeBatch(db);
+              let syncCount = 0;
+              members.forEach(m => {
+                const updates: any = {};
+                
+                // Sync Trip Days
+                if (!m.tripDays) {
+                  const dayTag = (Array.isArray(m.tags) ? m.tags : []).find(t => 
+                    t.includes('天') || /^[0-9]+[dD]$/.test(t.trim())
+                  );
+                  if (dayTag) {
+                    const match = dayTag.match(/\d+/);
+                    if (match) {
+                      const days = parseInt(match[0]);
+                      if (!isNaN(days)) updates.tripDays = days;
+                    }
+                  }
+                }
+
+                if (Object.keys(updates).length > 0) {
+                  batch.update(doc(db, 'members', m.id), updates);
+                  syncCount++;
+                }
+              });
+
+              if (syncCount > 0) {
+                try {
+                  await batch.commit();
+                  alert(`成功同步了 ${syncCount} 位成員的資料！`);
+                } catch (err) {
+                  console.error("Sync failed:", err);
+                  alert("同步失敗，請查看控制台或稍後再試。");
+                }
+              } else {
+                alert("找不到可同步的標籤或資料已是最新。");
+              }
+            }}
+            className="flex items-center gap-2 bg-amber-50 text-amber-600 border border-amber-200 px-4 py-2 rounded-full text-sm font-medium hover:bg-amber-100 transition-colors shadow-sm"
+          >
+            同步標籤天數
+          </button>
         </div>
       </div>
 
@@ -340,15 +388,17 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
           <table className="w-full text-left">
             <thead>
               <tr className="bg-stone-50 border-b border-stone-200">
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500">姓名</th>
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500">組別</th>
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500">飲食偏好</th>
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500 text-right">操作</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500 whitespace-nowrap min-w-[120px] w-[140px]">姓名</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500 whitespace-nowrap">組別</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500 whitespace-nowrap">天數</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500 whitespace-nowrap">性別</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500 whitespace-nowrap">飲食偏好</th>
+                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500 whitespace-nowrap text-right">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
               {filteredMembers.map((member) => (
-                <tr key={member.id} className="hover:bg-stone-50 transition-colors group">
+                <tr key={member.id} className="hover:bg-stone-50 transition-colors group whitespace-nowrap">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-full bg-stone-100 flex items-center justify-center text-xs font-bold text-stone-600">
@@ -402,6 +452,25 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
                   </td>
                   <td className="px-6 py-4">
                     <span className={cn(
+                      "px-3 py-1 rounded-full text-xs font-bold border whitespace-nowrap",
+                      member.tripDays ? (member.tripDays >= 9 ? "bg-purple-100 text-purple-700 border-purple-200" : "bg-teal-100 text-teal-700 border-teal-200") : "bg-stone-100 text-stone-500 border-stone-200"
+                    )}>
+                      {member.tripDays ? `${member.tripDays} 天` : '未標註'}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className={cn(
+                      "text-xs px-2 py-1 rounded-full font-medium",
+                      member.gender === '男' || member.gender === 'M' ? "bg-blue-50 text-blue-600 border border-blue-100" : 
+                      member.gender === '女' || member.gender === 'F' ? "bg-rose-50 text-rose-600 border border-rose-100" : 
+                      "bg-stone-50 text-stone-400 border border-stone-100"
+                    )}>
+                      {member.gender === '男' || member.gender === 'M' ? '男' : 
+                       member.gender === '女' || member.gender === 'F' ? '女' : '未設定'}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className={cn(
                       "text-xs px-2 py-1 rounded-full font-medium",
                       member.dietaryHabits?.includes('素') ? "bg-green-100 text-green-700" : "bg-stone-100 text-stone-600"
                     )}>
@@ -428,7 +497,7 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
               ))}
               {filteredMembers.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="px-6 py-12 text-center text-stone-400">
+                  <td colSpan={6} className="px-6 py-12 text-center text-stone-400">
                     找不到符合搜尋條件的團員。
                   </td>
                 </tr>
@@ -458,7 +527,32 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
                     className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900/5"
                   />
                 </div>
-                <div className="col-span-2">
+                <div className="col-span-1">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-1">行程天數 (Trip Days)</label>
+                  <input 
+                    type="number" 
+                    placeholder="例如: 9"
+                    value={isAddingMember ? newMember.tripDays || '' : editingMember?.tripDays || ''}
+                    onChange={(e) => {
+                      const val = e.target.value === '' ? undefined : parseInt(e.target.value);
+                      isAddingMember ? setNewMember({...newMember, tripDays: val}) : setEditingMember({...editingMember!, tripDays: val});
+                    }}
+                    className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900/5"
+                  />
+                </div>
+                <div className="col-span-1">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-1">性別 (Gender)</label>
+                  <select 
+                    value={isAddingMember ? newMember.gender : editingMember?.gender}
+                    onChange={(e) => isAddingMember ? setNewMember({...newMember, gender: e.target.value}) : setEditingMember({...editingMember!, gender: e.target.value})}
+                    className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900/5"
+                  >
+                    <option value="">未設定</option>
+                    <option value="男">男 (Male)</option>
+                    <option value="女">女 (Female)</option>
+                  </select>
+                </div>
+                <div className="col-span-1">
                   <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-1 flex justify-between items-center">
                     <span>所屬組別 (Group)</span>
                     {!isAddingMember && editingMember?.isLeader && (

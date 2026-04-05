@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Itinerary, Member, Group, ItineraryType } from '../types';
 import { 
   Plus, 
@@ -10,7 +11,8 @@ import {
   ExternalLink,
   Users,
   Check,
-  Settings
+  Settings,
+  Search
 } from 'lucide-react';
 import { 
   collection, 
@@ -54,6 +56,7 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
   const [tempSettings, setTempSettings] = useState<TripSettings>({ startDate: '', endDate: '' });
 
   const [activeDate, setActiveDate] = useState<string>(safeFormat(new Date(), 'yyyy-MM-dd'));
+  const [memberSearchTerm, setMemberSearchTerm] = useState('');
 
   const [newItem, setNewItem] = useState<{
     title: string;
@@ -64,6 +67,7 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
     notes: string;
     isMain: boolean;
     excludedMemberIds: string[];
+    accommodationDetail: string;
   }>({
     title: '',
     type: 'attraction',
@@ -72,7 +76,10 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
     location: { address: '', navLink: '' },
     notes: '',
     isMain: true,
-    excludedMemberIds: []
+    excludedMemberIds: [],
+    assignedMemberIds: [],
+    vehicleAssignments: {},
+    isMultiVehicle: false
   });
 
   // Fetch trip settings
@@ -174,6 +181,8 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
         assignedMemberIds: newItem.isMain ? [] : selectedMembers,
         excludedMemberIds: newItem.isMain ? selectedMembers : [],
         dayIndex: tripDates.indexOf(activeDate),
+        vehicleAssignments: newItem.vehicleAssignments || {},
+        isMultiVehicle: newItem.isMultiVehicle || false,
         id: Date.now().toString()
       });
       await updateDoc(docRef, { id: docRef.id });
@@ -181,9 +190,12 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
       setNewItem({ 
         title: '', type: 'attraction', startTimeStr: '09:00', endTimeStr: '', 
         location: { address: '', navLink: '' }, notes: '', isMain: true,
-        excludedMemberIds: []
+        excludedMemberIds: [],
+        assignedMemberIds: [],
+        vehicleAssignments: {},
+        isMultiVehicle: false
       });
-      setSelectedMembers([]);
+      setMemberSearchTerm('');
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'itineraries');
     }
@@ -209,10 +221,13 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
         endTime: endDateTime ? Timestamp.fromDate(endDateTime) : null,
         assignedMemberIds: newItem.isMain ? [] : selectedMembers,
         excludedMemberIds: newItem.isMain ? selectedMembers : [],
-        dayIndex: tripDates.indexOf(activeDate)
+        dayIndex: tripDates.indexOf(activeDate),
+        vehicleAssignments: newItem.vehicleAssignments || {},
+        isMultiVehicle: newItem.isMultiVehicle || false
       });
       setEditing(null);
       setSelectedMembers([]);
+      setMemberSearchTerm('');
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `itineraries/${editing.id}`);
     }
@@ -232,6 +247,7 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
       case 'dining': return 'bg-orange-500';
       case 'transit': return 'bg-stone-500';
       case 'logistics': return 'bg-purple-500';
+      case 'accommodation': return 'bg-[#00F3FF]';
       default: return 'bg-stone-500';
     }
   };
@@ -241,7 +257,8 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
       case 'attraction': return '景點';
       case 'dining': return '餐飲';
       case 'transit': return '交通';
-      case 'logistics': return '行政';
+      case 'logistics': return '參拜';
+      case 'accommodation': return '住宿';
       default: return type;
     }
   };
@@ -259,8 +276,11 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
       endTimeStr: end ? safeFormat(end, 'HH:mm') : '',
       location: it.location || { address: '', navLink: '' },
       notes: it.notes || '',
-      isMain: it.isMain,
-      excludedMemberIds: it.excludedMemberIds || []
+      isMain: it.isMain || false,
+      excludedMemberIds: it.excludedMemberIds || [],
+      assignedMemberIds: it.assignedMemberIds || [],
+      vehicleAssignments: it.vehicleAssignments || {},
+      isMultiVehicle: it.isMultiVehicle || false
     });
     setSelectedMembers(it.isMain ? (it.excludedMemberIds || []) : (it.assignedMemberIds || []));
   };
@@ -296,7 +316,9 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
                 setNewItem({ 
                   title: '', type: 'attraction', startTimeStr: '09:00', endTimeStr: '', 
                   location: { address: '', navLink: '' }, notes: '', isMain: true,
-                  excludedMemberIds: []
+                  excludedMemberIds: [], assignedMemberIds: [],
+                  vehicleAssignments: {},
+                  isMultiVehicle: false
                 });
                 setSelectedMembers([]);
               }}
@@ -430,6 +452,33 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
                             )}>
                               {getTypeLabel(it.type)}
                             </span>
+                            {it.type === 'transit' && (
+                              <div className="flex items-center gap-1.5 font-bold text-[10px] uppercase tracking-wider">
+                                {!it.isMultiVehicle ? (
+                                  <span className="px-3 py-1 rounded-full bg-stone-100 text-stone-600 border border-stone-200">
+                                    {(it.isMain 
+                                      ? members.filter(m => !it.excludedMemberIds?.includes(m.id))
+                                      : members.filter(m => it.assignedMemberIds?.includes(m.id))
+                                    ).length} 人
+                                  </span>
+                                ) : (
+                                  <>
+                                    <span className="px-3 py-1 rounded-full bg-amber-50 text-amber-600 border border-amber-200 shadow-sm">
+                                      A車: {(it.isMain 
+                                        ? members.filter(m => !it.excludedMemberIds?.includes(m.id))
+                                        : members.filter(m => it.assignedMemberIds?.includes(m.id))
+                                      ).filter(m => (it.vehicleAssignments?.[m.id] === 'A' || !it.vehicleAssignments?.[m.id])).length} 人
+                                    </span>
+                                    <span className="px-3 py-1 rounded-full bg-blue-50 text-blue-600 border border-blue-200 shadow-sm">
+                                      B車: {(it.isMain 
+                                        ? members.filter(m => !it.excludedMemberIds?.includes(m.id))
+                                        : members.filter(m => it.assignedMemberIds?.includes(m.id))
+                                      ).filter(m => it.vehicleAssignments?.[m.id] === 'B').length} 人
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                            )}
                             {!it.isMain && (
                               <span className="px-3 py-1 rounded-full text-[10px] uppercase tracking-wider font-bold bg-purple-100 text-purple-700">
                                 脫隊行動
@@ -469,6 +518,131 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
                             </div>
                           )}
 
+                          {it.type === 'accommodation' && (
+                            <div className="w-full mt-4 p-4 bg-stone-50 rounded-2xl border border-stone-200">
+                              <h4 className="text-xs font-bold text-stone-500 uppercase tracking-wider mb-3">住宿分配名單</h4>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                  <div className="text-[10px] font-bold text-blue-500 uppercase mb-2 flex items-center gap-1">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                                    男生名單 (Males)
+                                  </div>
+                                  <div className="flex flex-wrap gap-1">
+                                    {(it.isMain 
+                                      ? members.filter(m => !it.excludedMemberIds?.includes(m.id))
+                                      : members.filter(m => it.assignedMemberIds?.includes(m.id))
+                                    ).filter(m => m.gender === '男' || m.gender === 'M').map(m => (
+                                      <span key={m.id} className="px-2 py-0.5 bg-white border border-stone-200 rounded text-[10px] text-stone-600">
+                                        {m.name}
+                                      </span>
+                                    ))}
+                                    {(it.isMain 
+                                      ? members.filter(m => !it.excludedMemberIds?.includes(m.id))
+                                      : members.filter(m => it.assignedMemberIds?.includes(m.id))
+                                    ).filter(m => m.gender === '男' || m.gender === 'M').length === 0 && (
+                                      <span className="text-[10px] text-stone-300 italic">無</span>
+                                    )}
+                                  </div>
+                                </div>
+                                <div>
+                                  <div className="text-[10px] font-bold text-rose-500 uppercase mb-2 flex items-center gap-1">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                                    女生名單 (Females)
+                                  </div>
+                                  <div className="flex flex-wrap gap-1">
+                                    {(it.isMain 
+                                      ? members.filter(m => !it.excludedMemberIds?.includes(m.id))
+                                      : members.filter(m => it.assignedMemberIds?.includes(m.id))
+                                    ).filter(m => m.gender === '女' || m.gender === 'F').map(m => (
+                                      <span key={m.id} className="px-2 py-0.5 bg-white border border-stone-200 rounded text-[10px] text-stone-600">
+                                        {m.name}
+                                      </span>
+                                    ))}
+                                    {(it.isMain 
+                                      ? members.filter(m => !it.excludedMemberIds?.includes(m.id))
+                                      : members.filter(m => it.assignedMemberIds?.includes(m.id))
+                                    ).filter(m => m.gender === '女' || m.gender === 'F').length === 0 && (
+                                      <span className="text-[10px] text-stone-300 italic">無</span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {it.type === 'transit' && (
+                            <div className="w-full mt-4 p-4 bg-stone-50 rounded-2xl border border-stone-200">
+                              <h4 className="text-xs font-bold text-stone-500 uppercase tracking-wider mb-3 flex items-center justify-between w-full">
+                                <span>{it.isMultiVehicle ? (it.vehicleAssignments && Object.keys(it.vehicleAssignments).length > 0 ? '分車名單 (動態分配)' : '車序分配名單') : '參與名單 (單一車輛)'}</span>
+                                {!it.isMultiVehicle && (
+                                  <span className="bg-stone-200 text-stone-600 px-2 py-0.5 rounded-full text-[10px]">
+                                    共 {(it.isMain 
+                                      ? members.filter(m => !it.excludedMemberIds?.includes(m.id))
+                                      : members.filter(m => it.assignedMemberIds?.includes(m.id))
+                                    ).length} 人
+                                  </span>
+                                )}
+                              </h4>
+                              {it.isMultiVehicle ? (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  <div>
+                                    <div className="text-[10px] font-bold text-amber-600 uppercase mb-2 flex items-center gap-1">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                                      A 車名單
+                                    </div>
+                                    <div className="flex flex-wrap gap-1">
+                                      {(it.isMain 
+                                        ? members.filter(m => !it.excludedMemberIds?.includes(m.id))
+                                        : members.filter(m => it.assignedMemberIds?.includes(m.id))
+                                      ).filter(m => {
+                                        if (it.vehicleAssignments && it.vehicleAssignments[m.id]) {
+                                          return it.vehicleAssignments[m.id] === 'A';
+                                        }
+                                        return false;
+                                      }).map(m => (
+                                        <span key={m.id} className="px-2 py-0.5 bg-white border border-stone-200 rounded text-[10px] text-stone-600">
+                                          {m.name}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div className="text-[10px] font-bold text-blue-600 uppercase mb-2 flex items-center gap-1">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                                      B 車名單
+                                    </div>
+                                    <div className="flex flex-wrap gap-1">
+                                      {(it.isMain 
+                                        ? members.filter(m => !it.excludedMemberIds?.includes(m.id))
+                                        : members.filter(m => it.assignedMemberIds?.includes(m.id))
+                                      ).filter(m => {
+                                        if (it.vehicleAssignments && it.vehicleAssignments[m.id]) {
+                                          return it.vehicleAssignments[m.id] === 'B';
+                                        }
+                                        return false;
+                                      }).map(m => (
+                                        <span key={m.id} className="px-2 py-0.5 bg-white border border-stone-200 rounded text-[10px] text-stone-600">
+                                          {m.name}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="flex flex-wrap gap-1">
+                                  {(it.isMain 
+                                    ? members.filter(m => !it.excludedMemberIds?.includes(m.id))
+                                    : members.filter(m => it.assignedMemberIds?.includes(m.id))
+                                  ).map(m => (
+                                    <span key={m.id} className="px-2 py-0.5 bg-white border border-stone-200 rounded text-[10px] text-stone-600">
+                                      {m.name}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
                           <div className={cn(
                             "flex items-center gap-2 pt-4 border-t border-stone-100 w-full",
                             isLeft ? "lg:justify-end" : "lg:justify-start"
@@ -486,6 +660,7 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
                             <button 
                               onClick={() => handleEditClick(it)}
                               className="p-2 text-stone-400 hover:text-stone-900 hover:bg-stone-100 rounded-lg transition-colors"
+                              title="編輯"
                             >
                               <Edit2 className="w-4 h-4" />
                             </button>
@@ -595,30 +770,42 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
                   />
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-1">行程類型 (Type)</label>
-                  <select 
-                    value={newItem.type}
-                    onChange={(e) => setNewItem({...newItem, type: e.target.value as ItineraryType})}
-                    className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900/5"
-                  >
-                    <option value="attraction">景點 (Attraction)</option>
-                    <option value="dining">餐飲 (Dining)</option>
-                    <option value="transit">交通 (Transit)</option>
-                    <option value="logistics">行政 (Logistics)</option>
-                  </select>
+                <div className="md:col-span-2 flex items-center justify-between gap-4 mb-3">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-stone-500">行程類型 (Type)</label>
+                  <label className="flex items-center gap-2 cursor-pointer group/main">
+                    <div 
+                      onClick={() => setNewItem({...newItem, isMain: !newItem.isMain})}
+                      className={cn(
+                        "w-5 h-5 rounded border transition-all flex items-center justify-center",
+                        newItem.isMain ? "bg-stone-900 border-stone-900 text-white" : "bg-white border-stone-200 group-hover/main:border-stone-400"
+                      )}
+                    >
+                      {newItem.isMain && <Check className="w-3 h-3" />}
+                    </div>
+                    <span className="text-xs font-medium text-stone-700">主要行程 (所有團員參與)</span>
+                  </label>
+                </div>
+                <div className="md:col-span-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                    {(['transit', 'accommodation', 'attraction', 'dining', 'logistics'] as ItineraryType[]).map((type) => (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => setNewItem({ ...newItem, type })}
+                        className={cn(
+                          "px-4 py-2 rounded-xl text-xs font-medium transition-all border",
+                          newItem.type === type 
+                            ? "bg-stone-900 text-white border-stone-900 shadow-sm shadow-stone-200" 
+                            : "bg-white text-stone-600 border-stone-200 hover:border-stone-400 group-active:border-[#00F3FF]"
+                        )}
+                      >
+                        {getTypeLabel(type)}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-3 pt-6">
-                  <input 
-                    type="checkbox" 
-                    id="isMain"
-                    checked={newItem.isMain}
-                    onChange={(e) => setNewItem({...newItem, isMain: e.target.checked})}
-                    className="w-5 h-5 accent-stone-900"
-                  />
-                  <label htmlFor="isMain" className="text-sm font-medium text-stone-700">主要行程 (所有團員參與)</label>
-                </div>
+
 
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-1">開始時間 (Start Time)</label>
@@ -651,15 +838,7 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
                   />
                 </div>
 
-                <div className="md:col-span-2">
-                  <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-1">導航連結 (Navigation Link)</label>
-                  <input 
-                    type="url" 
-                    value={newItem.location?.navLink}
-                    onChange={(e) => setNewItem({...newItem, location: {...newItem.location, navLink: e.target.value}})}
-                    className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900/5"
-                  />
-                </div>
+
 
                 <div className="md:col-span-2">
                   <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-1">備註 (Notes)</label>
@@ -676,6 +855,18 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
                     {newItem.isMain ? '排除不參加的團員 (例如用餐自理)' : '指派參與此脫隊行程的團員'}
                   </label>
                   
+                  {/* Search Input */}
+                  <div className="relative mb-4">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
+                    <input 
+                      type="text" 
+                      placeholder="搜尋團員姓名..."
+                      value={memberSearchTerm}
+                      onChange={(e) => setMemberSearchTerm(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900/5 text-sm"
+                    />
+                  </div>
+
                   {/* Select by Group */}
                   <div className="flex flex-wrap gap-2 mb-4">
                     {groups.map(group => {
@@ -710,30 +901,202 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
                     })}
                   </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-48 overflow-y-auto p-4 bg-stone-50 border border-stone-200 rounded-2xl">
-                    {members.map(m => (
-                      <button
-                        key={m.id}
-                        type="button"
-                        onClick={() => {
-                          if (selectedMembers.includes(m.id)) {
-                            setSelectedMembers(selectedMembers.filter(id => id !== m.id));
-                          } else {
-                            setSelectedMembers([...selectedMembers, m.id]);
-                          }
-                        }}
-                        className={cn(
-                          "flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium transition-all border",
-                          selectedMembers.includes(m.id)
-                            ? (newItem.isMain ? "bg-red-500 text-white border-red-500" : "bg-stone-900 text-white border-stone-900")
-                            : "bg-white text-stone-600 border-stone-200 hover:border-stone-400"
-                        )}
-                      >
-                        {selectedMembers.includes(m.id) && (newItem.isMain ? <Plus className="w-3 h-3 rotate-45" /> : <Check className="w-3 h-3" />)}
-                        {m.name}
-                      </button>
-                    ))}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-48 overflow-y-auto p-4 bg-stone-50 border border-stone-200 rounded-2xl relative">
+                    <AnimatePresence mode="popLayout" initial={false}>
+                      {members
+                        .filter(m => m.name.toLowerCase().includes(memberSearchTerm.toLowerCase()))
+                        .sort((a, b) => {
+                          const aSelected = selectedMembers.includes(a.id);
+                          const bSelected = selectedMembers.includes(b.id);
+                          if (aSelected && !bSelected) return 1;
+                          if (!aSelected && bSelected) return -1;
+                          return a.name.localeCompare(b.name);
+                        })
+                        .map(m => (
+                          <motion.button
+                            layout
+                            key={m.id}
+                            type="button"
+                            onClick={() => {
+                              if (selectedMembers.includes(m.id)) {
+                                setSelectedMembers(selectedMembers.filter(id => id !== m.id));
+                              } else {
+                                setSelectedMembers([...selectedMembers, m.id]);
+                              }
+                            }}
+                            className={cn(
+                              "flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium transition-all border",
+                              selectedMembers.includes(m.id)
+                                ? (newItem.isMain ? "bg-red-500 text-white border-red-500" : "bg-stone-900 text-white border-stone-900")
+                                : "bg-white text-stone-600 border-stone-200 hover:border-stone-400"
+                            )}
+                            whileHover={{ scale: 1.02 }}
+                            whileTap={{ scale: 0.98 }}
+                          >
+                            {selectedMembers.includes(m.id) && (newItem.isMain ? <Plus className="w-3 h-3 rotate-45" /> : <Check className="w-3 h-3" />)}
+                            {m.name}
+                          </motion.button>
+                        ))}
+                    </AnimatePresence>
                   </div>
+
+                  {/* Vehicle Assignments for Transit */}
+                  {newItem.type === 'transit' && (
+                    <div className="mt-6 p-6 bg-stone-50 rounded-2xl border border-stone-200">
+                      <div className="flex flex-col gap-4 mb-4 pb-4 border-b border-stone-100">
+                        <div className="flex items-center justify-between">
+                          <label className="text-sm font-bold text-stone-900 border-l-4 border-amber-400 pl-3">
+                            動態分車設定 (Vehicle Assignments)
+                            <span className="ml-2 px-2 py-0.5 bg-stone-100 text-stone-400 text-[10px] rounded-full font-normal">
+                              共 {(newItem.isMain ? members.filter(m => !newItem.excludedMemberIds.includes(m.id)) : members.filter(m => newItem.assignedMemberIds.includes(m.id))).length} 人
+                            </span>
+                          </label>
+
+                          <div 
+                            onClick={() => setNewItem({...newItem, isMultiVehicle: !newItem.isMultiVehicle})}
+                            className="flex items-center gap-2 cursor-pointer group bg-white px-3 py-1.5 rounded-full border border-stone-200 hover:border-amber-400 transition-all shadow-sm"
+                          >
+                            <div className={cn(
+                              "relative w-10 h-5 rounded-full transition-colors",
+                              newItem.isMultiVehicle ? "bg-amber-500" : "bg-stone-200"
+                            )}>
+                              <div className={cn(
+                                "absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform shadow-sm",
+                                newItem.isMultiVehicle ? "translate-x-5" : ""
+                              )} />
+                            </div>
+                            <span className="text-xs font-bold text-stone-500 group-hover:text-amber-600 transition-colors">兩車制 (A/B Split)</span>
+                          </div>
+                        </div>
+
+                        {newItem.isMultiVehicle && (
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setNewItem({...newItem, vehicleAssignments: {}})}
+                              className="px-3 py-1.5 bg-white border border-stone-200 rounded-xl text-[10px] font-bold text-red-500 hover:bg-red-50 hover:border-red-200 transition-all shadow-sm"
+                            >
+                              重設 (Reset)
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      
+                      {newItem.isMultiVehicle ? (
+                        <div className="grid grid-cols-2 gap-4">
+                          {/* Column A */}
+                          <div className="flex flex-col gap-2">
+                            <div className="bg-amber-500/10 border border-amber-500/20 py-2 px-3 rounded-xl flex items-center justify-between">
+                              <span className="text-[10px] font-black tracking-widest text-amber-600 uppercase">A 車</span>
+                              <span className="text-[10px] font-bold text-amber-500 bg-white/50 px-1.5 py-0.5 rounded">
+                                {(newItem.isMain 
+                                  ? members.filter(m => !newItem.excludedMemberIds.includes(m.id))
+                                  : members.filter(m => newItem.assignedMemberIds.includes(m.id))
+                                ).filter(m => newItem.vehicleAssignments[m.id] === 'A' || !newItem.vehicleAssignments[m.id]).length} 人
+                              </span>
+                            </div>
+                            <div className="min-h-40 max-h-60 overflow-y-auto bg-stone-50/50 p-2 border border-stone-100 rounded-2xl flex flex-col gap-2 relative">
+                              <AnimatePresence mode="popLayout" initial={false}>
+                                {(newItem.isMain 
+                                  ? members.filter(m => !newItem.excludedMemberIds.includes(m.id))
+                                  : members.filter(m => newItem.assignedMemberIds.includes(m.id))
+                                ).filter(m => newItem.vehicleAssignments[m.id] === 'A' || !newItem.vehicleAssignments[m.id]).map(m => (
+                                  <motion.div 
+                                    key={m.id} 
+                                    layout
+                                    initial={{ opacity: 0, scale: 0.8 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    exit={{ opacity: 0, scale: 0.8, transition: { duration: 0.15 } }}
+                                    onClick={() => {
+                                      const next = { ...newItem.vehicleAssignments };
+                                      next[m.id] = 'B'; 
+                                      setNewItem({ ...newItem, vehicleAssignments: next });
+                                    }}
+                                    whileHover={{ scale: 1.02 }}
+                                    whileTap={{ scale: 0.98 }}
+                                    className="group cursor-pointer select-none"
+                                  >
+                                    <div className="flex items-center justify-between p-2 bg-white border border-stone-200 rounded-xl shadow-sm hover:border-amber-400 hover:shadow-md transition-all">
+                                      <span className="text-[11px] font-medium text-stone-700">{m.name}</span>
+                                      <span className="text-[9px] text-stone-300 group-hover:text-amber-500 transition-colors font-bold">➔ B車</span>
+                                    </div>
+                                  </motion.div>
+                                ))}
+                              </AnimatePresence>
+                              {((newItem.isMain 
+                                ? members.filter(m => !newItem.excludedMemberIds.includes(m.id))
+                                : members.filter(m => newItem.assignedMemberIds.includes(m.id))
+                               ).filter(m => newItem.vehicleAssignments[m.id] === 'A' || !newItem.vehicleAssignments[m.id]).length === 0) && (
+                                <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-20">
+                                  <span className="text-[10px] uppercase tracking-widest font-bold">空</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Column B */}
+                          <div className="flex flex-col gap-2">
+                            <div className="bg-blue-500/10 border border-blue-500/20 py-2 px-3 rounded-xl flex items-center justify-between">
+                              <span className="text-[10px] font-black tracking-widest text-blue-600 uppercase">B 車</span>
+                              <span className="text-[10px] font-bold text-blue-500 bg-white/50 px-1.5 py-0.5 rounded">
+                                {(newItem.isMain 
+                                  ? members.filter(m => !newItem.excludedMemberIds.includes(m.id))
+                                  : members.filter(m => newItem.assignedMemberIds.includes(m.id))
+                                ).filter(m => newItem.vehicleAssignments[m.id] === 'B').length} 人
+                              </span>
+                            </div>
+                            <div className="min-h-40 max-h-60 overflow-y-auto bg-stone-50/50 p-2 border border-stone-100 rounded-2xl flex flex-col gap-2 relative">
+                              <AnimatePresence mode="popLayout" initial={false}>
+                                {(newItem.isMain 
+                                  ? members.filter(m => !newItem.excludedMemberIds.includes(m.id))
+                                  : members.filter(m => newItem.assignedMemberIds.includes(m.id))
+                                ).filter(m => newItem.vehicleAssignments[m.id] === 'B').map(m => (
+                                  <motion.div 
+                                    key={m.id} 
+                                    layout
+                                    initial={{ opacity: 0, scale: 0.8 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    exit={{ opacity: 0, scale: 0.8, transition: { duration: 0.15 } }}
+                                    onClick={() => {
+                                      const next = { ...newItem.vehicleAssignments };
+                                      next[m.id] = 'A';
+                                      setNewItem({ ...newItem, vehicleAssignments: next });
+                                    }}
+                                    whileHover={{ scale: 1.02 }}
+                                    whileTap={{ scale: 0.98 }}
+                                    className="group cursor-pointer select-none"
+                                  >
+                                    <div className="flex items-center justify-between p-2 bg-white border border-stone-200 rounded-xl shadow-sm hover:border-blue-400 hover:shadow-md transition-all">
+                                      <span className="text-[11px] font-medium text-stone-700">{m.name}</span>
+                                      <span className="text-[9px] text-stone-300 group-hover:text-blue-500 transition-colors font-bold">↞ A車</span>
+                                    </div>
+                                  </motion.div>
+                                ))}
+                              </AnimatePresence>
+                              {((newItem.isMain 
+                                ? members.filter(m => !newItem.excludedMemberIds.includes(m.id))
+                                : members.filter(m => newItem.assignedMemberIds.includes(m.id))
+                               ).filter(m => newItem.vehicleAssignments[m.id] === 'B').length === 0) && (
+                                <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-20">
+                                  <span className="text-[10px] uppercase tracking-widest font-bold">空</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                      ) : (
+                        <div className="p-4 bg-stone-100/50 border border-stone-200 rounded-2xl text-center">
+                          <p className="text-[10px] text-stone-500 font-bold mb-2 uppercase tracking-widest">目前共 {(newItem.isMain ? members.filter(m => !newItem.excludedMemberIds.includes(m.id)) : members.filter(m => newItem.assignedMemberIds.includes(m.id))).length} 人</p>
+                          <p className="text-[10px] text-stone-400 italic">參與名單將統一顯示於單一車輛。</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {members.filter(m => m.name.toLowerCase().includes(memberSearchTerm.toLowerCase())).length === 0 && (
+                    <p className="text-center py-4 text-xs text-stone-400">找不到符合搜尋條件的團員。</p>
+                  )}
                   <p className="text-[10px] text-stone-400 mt-2">
                     {newItem.isMain ? `已排除 ${selectedMembers.length} 名團員 (其餘全員參加)` : `已指派 ${selectedMembers.length} 位參與者`}
                   </p>
@@ -743,7 +1106,7 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
               <div className="flex gap-3 pt-4">
                 <button 
                   type="button"
-                  onClick={() => { setIsAdding(false); setEditing(null); setSelectedMembers([]); }}
+                  onClick={() => { setIsAdding(false); setEditing(null); setSelectedMembers([]); setMemberSearchTerm(''); }}
                   className="flex-1 py-3 border border-stone-200 rounded-xl font-medium hover:bg-stone-50 transition-colors"
                 >
                   取消 (Cancel)

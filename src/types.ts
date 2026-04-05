@@ -1,4 +1,4 @@
-export type ItineraryType = 'attraction' | 'dining' | 'transit' | 'logistics';
+export type ItineraryType = 'attraction' | 'dining' | 'transit' | 'logistics' | 'accommodation';
 
 export interface Member {
   id: string;
@@ -12,6 +12,9 @@ export interface Member {
   returnFlight?: string;
   returnTime?: string;
   isLeader?: boolean;
+  gender?: 'M' | 'F' | string;
+  tripDays?: number;
+  carNumber?: string;
 }
 
 export interface Group {
@@ -34,6 +37,8 @@ export interface Itinerary {
   assignedMemberIds?: string[];
   excludedMemberIds?: string[];
   dayIndex?: number;
+  vehicleAssignments?: Record<string, string>;
+  isMultiVehicle?: boolean;
 }
 
 export interface RollCall {

@@ -12,7 +12,7 @@ interface DashboardProps {
 
 import { format } from 'date-fns';
 
-type TripType = 'total' | '5day' | '9day' | 'other';
+type TripType = 'total' | '9day' | '5day' | '3day' | 'other';
 
 export default function Dashboard({ members, itineraries, rollCalls, groups }: DashboardProps) {
   const [selectedTripType, setSelectedTripType] = useState<TripType | null>(null);
@@ -32,34 +32,32 @@ export default function Dashboard({ members, itineraries, rollCalls, groups }: D
     };
   });
 
-  // Calculate trip duration counts based on tags
-  const nineDayMembers = members.filter(m => 
-    m.tags?.some(tag => tag.toLowerCase().includes('9天') || tag.toLowerCase().includes('9d'))
+  const nineDayMembers = members.filter(m => m.tripDays === 9 || m.tripDays === 8);
+  const fiveDayMembers = members.filter(m => m.tripDays === 5);
+  const threeDayMembers = members.filter(m => m.tripDays === 3);
+
+  const otherMembers = members.filter(m => 
+    m.tripDays !== 9 && m.tripDays !== 8 && m.tripDays !== 5 && m.tripDays !== 3
   );
 
-  const threeDayMembers = members.filter(m => 
-    m.tags?.some(tag => tag.toLowerCase().includes('3天') || tag.toLowerCase().includes('3d'))
-  );
-
-  // 5-day is the default if no 9-day or 3-day tag is present
-  const fiveDayMembers = members.filter(m => 
-    !nineDayMembers.some(nm => nm.id === m.id) && !threeDayMembers.some(tm => tm.id === m.id)
-  );
+  const maleMembers = members.filter(m => m.gender === '男' || m.gender === 'M');
+  const femaleMembers = members.filter(m => m.gender === '女' || m.gender === 'F');
 
   const stats = [
-    { label: '總人數', value: totalMembers, icon: Users, color: 'text-blue-600', type: 'total' as TripType },
-    { label: '5天行程', value: fiveDayMembers.length, icon: Calendar, color: 'text-green-600', type: '5day' as TripType },
     { label: '9天行程', value: nineDayMembers.length, icon: Calendar, color: 'text-stone-600', type: '9day' as TripType },
-    { label: '其他行程', value: threeDayMembers.length, icon: Calendar, color: 'text-purple-600', type: 'other' as TripType },
+    { label: '5天行程', value: fiveDayMembers.length, icon: Calendar, color: 'text-green-600', type: '5day' as TripType },
+    { label: '3天行程', value: threeDayMembers.length, icon: Calendar, color: 'text-rose-400', type: '3day' as TripType },
+    { label: '其他行程', value: otherMembers.length, icon: Calendar, color: 'text-purple-600', type: 'other' as TripType },
   ];
 
   const getFilteredMembers = () => {
     let result: Member[] = [];
     switch (selectedTripType) {
       case 'total': result = members; break;
-      case '5day': result = fiveDayMembers; break;
       case '9day': result = nineDayMembers; break;
-      case 'other': result = threeDayMembers; break;
+      case '5day': result = fiveDayMembers; break;
+      case '3day': result = threeDayMembers; break;
+      case 'other': result = otherMembers; break;
       default: result = [];
     }
 
@@ -102,6 +100,28 @@ export default function Dashboard({ members, itineraries, rollCalls, groups }: D
             <p className="text-3xl font-serif mt-1">{stat.value}</p>
           </button>
         ))}
+      </div>
+
+      {/* Gender Summary Section */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="bg-white p-6 rounded-3xl border border-stone-200 shadow-sm flex items-center justify-between">
+          <div>
+            <p className="text-stone-500 text-sm font-medium">男生人數</p>
+            <p className="text-3xl font-serif mt-1 text-blue-600">{maleMembers.length}</p>
+          </div>
+          <div className="p-4 bg-blue-50 rounded-2xl">
+            <Users className="w-8 h-8 text-blue-500" />
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-3xl border border-stone-200 shadow-sm flex items-center justify-between">
+          <div>
+            <p className="text-stone-500 text-sm font-medium">女生人數</p>
+            <p className="text-3xl font-serif mt-1 text-rose-600">{femaleMembers.length}</p>
+          </div>
+          <div className="p-4 bg-rose-50 rounded-2xl">
+            <Users className="w-8 h-8 text-rose-500" />
+          </div>
+        </div>
       </div>
 
       {/* Group Summary Section */}

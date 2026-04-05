@@ -96,8 +96,13 @@ export default function FlightManager({ members, groups }: FlightManagerProps) {
         return { flightNo, time, members: flightMembers };
       })
       .sort((a, b) => {
-        if (a.flightNo === '未填寫') return 1;
-        if (b.flightNo === '未填寫') return -1;
+        // "未填寫" (Not Yet Filled) always at the top
+        if (a.flightNo === '未填寫') return -1;
+        if (b.flightNo === '未填寫') return 1;
+
+        // "在地成員 (日本)" always at the bottom
+        if (a.flightNo === '日本' || a.flightNo === '在地成員 (日本)') return 1;
+        if (b.flightNo === '日本' || b.flightNo === '在地成員 (日本)') return -1;
         
         // Sort by member count (descending)
         if (b.members.length !== a.members.length) {

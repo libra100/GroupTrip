@@ -44,6 +44,7 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
   const [copySuccess, setCopySuccess] = useState(false);
   const [tripSettings, setTripSettings] = useState<TripSettings | null>(null);
   const [activeDate, setActiveDate] = useState<string>(safeFormat(new Date(), 'yyyy-MM-dd'));
+  const [isItineraryListOpen, setIsItineraryListOpen] = useState(false);
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'settings', 'tripSettings'), (docSnap) => {
@@ -152,10 +153,9 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
     
     // Day 6+ (dayIndex >= 5) Main Itinerary Filter for 5-Day members
     // Default is 5-Day if no 3-Day or 9-Day tag exists
-    const tags = m.tags || [];
-    const is3Day = tags.some(tag => tag.toLowerCase().includes('3天') || tag.toLowerCase().includes('3d'));
-    const is9Day = tags.some(tag => tag.toLowerCase().includes('9天') || tag.toLowerCase().includes('9d'));
-    const is5Day = !is3Day && !is9Day;
+    const is3Day = m.tripDays === 3;
+    const is5Day = m.tripDays === 5;
+    const is9Day = m.tripDays === 9 || m.tripDays === 8;
     
     const isDay6Plus = currentItinerary?.dayIndex !== undefined && currentItinerary.dayIndex >= 5;
     const isDay4Plus = currentItinerary?.dayIndex !== undefined && currentItinerary.dayIndex >= 3;
@@ -222,10 +222,9 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
     
     // For Main itineraries, count members who should be there on that day
     return members.filter(m => {
-      const tags = m.tags || [];
-      const is3Day = tags.some(tag => tag.toLowerCase().includes('3天') || tag.toLowerCase().includes('3d'));
-      const is9Day = tags.some(tag => tag.toLowerCase().includes('9天') || tag.toLowerCase().includes('9d'));
-      const is5Day = !is3Day && !is9Day;
+      const is3Day = m.tripDays === 3;
+      const is5Day = m.tripDays === 5;
+      const is9Day = m.tripDays === 9 || m.tripDays === 8;
       
       const dayIdx = it.dayIndex;
       if (dayIdx === undefined) return true;
@@ -250,6 +249,18 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
           <h2 className="text-2xl font-serif font-light leading-tight">點名系統</h2>
           <p className="text-stone-400 text-[10px] font-bold uppercase tracking-widest">Attendance System</p>
         </div>
+
+        {/* Mobile Itinerary Toggle */}
+        <button 
+          onClick={() => setIsItineraryListOpen(!isItineraryListOpen)}
+          className="lg:hidden w-full flex items-center justify-between p-4 bg-white border border-stone-200 rounded-2xl shadow-sm text-stone-600 font-medium"
+        >
+          <div className="flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-stone-400" />
+            <span>{currentItinerary ? currentItinerary.title : '選擇行程 (Select Itinerary)'}</span>
+          </div>
+          <ArrowRight className={cn("w-4 h-4 transition-transform", isItineraryListOpen ? "rotate-90" : "")} />
+        </button>
 
         {/* Day Tabs */}
         {tripDates.length > 0 && (
@@ -295,14 +306,21 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
       {tripSettings ? (
         <div className="flex-1 flex flex-col lg:flex-row gap-6 min-h-0">
           {/* Sidebar: Day's Itineraries */}
-          <div className="w-full lg:w-72 bg-white border border-stone-200 rounded-3xl p-6 shadow-sm overflow-y-auto min-h-[200px] lg:min-h-0">
+          <div className={cn(
+            "w-full lg:w-72 bg-white border border-stone-200 rounded-3xl p-6 shadow-sm overflow-y-auto min-h-[200px] lg:min-h-0",
+            "lg:block",
+            isItineraryListOpen ? "block" : "hidden"
+          )}>
             <h3 className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-4">{activeDate.replace(/-/g, '/')} 行程與脫隊清單</h3>
             <div className="space-y-4 px-1 py-1">
               {activeDayItineraries.length > 0 ? (
                 activeDayItineraries.map(it => (
                   <button
                     key={it.id}
-                    onClick={() => setSelectedItineraryId(selectedItineraryId === it.id ? '' : it.id)}
+                    onClick={() => {
+                      setSelectedItineraryId(selectedItineraryId === it.id ? '' : it.id);
+                      setIsItineraryListOpen(false);
+                    }}
                     className={cn(
                       "w-full text-left p-4 rounded-2xl border transition-all group",
                       selectedItineraryId === it.id 
@@ -353,29 +371,26 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
                     </div>
                   </div>
                   
-                  <div className="flex items-center gap-6">
-                    <div className="flex flex-col items-center">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 items-center gap-4 w-full">
+                    <div className="flex flex-col items-start lg:items-center">
                       <span className="text-[10px] font-bold text-stone-400 uppercase tracking-tighter">參與人數</span>
                       <span className="text-xl font-bold text-stone-900 leading-none mt-1">
                         {currentItinerary ? getParticipantCount(currentItinerary) : 0}
                       </span>
                     </div>
-                    <div className="w-px h-8 bg-stone-100 hidden sm:block" />
-                    <div className="flex flex-col items-center">
+                    <div className="flex flex-col items-start lg:items-center">
                       <span className="text-[10px] font-bold text-stone-400 uppercase tracking-tighter">已出席</span>
                       <span className="text-xl font-bold text-green-600 leading-none mt-1">
                         {Object.values(latestRollCall?.statusMap || {}).filter(s => s === 'present').length}
                       </span>
                     </div>
-                    <div className="w-px h-8 bg-stone-100 hidden sm:block" />
-                    <div className="flex flex-col items-center">
+                    <div className="flex flex-col items-start lg:items-center">
                       <span className="text-[10px] font-bold text-stone-400 uppercase tracking-tighter">未到席</span>
                       <span className="text-xl font-bold text-red-500 leading-none mt-1">
                         {Object.values(latestRollCall?.statusMap || {}).filter(s => s === 'absent').length}
                       </span>
                     </div>
-                    <div className="w-px h-8 bg-stone-100 hidden sm:block" />
-                    <div className="flex flex-col items-center">
+                    <div className="flex flex-col items-start lg:items-center">
                       <span className="text-[10px] font-bold text-stone-400 uppercase tracking-tighter">脫隊中</span>
                       <span className="text-xl font-bold text-purple-500 leading-none mt-1">
                         {Object.values(latestRollCall?.statusMap || {}).filter(s => s === 'divergent').length}
@@ -386,7 +401,7 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
 
                 {/* Member List Section */}
                 <div className="flex-1 flex flex-col gap-4 min-h-0 overflow-hidden">
-                  <div className="flex gap-2">
+                  <div className="flex flex-col sm:flex-row gap-2">
                     <div className="relative flex-1">
                       <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
                       <input 
@@ -394,14 +409,14 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
                         placeholder="搜尋團員姓名或標籤..." 
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-full pl-11 pr-4 py-3 bg-white border border-stone-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-stone-900/5 transition-all shadow-sm"
+                        className="w-full pl-11 pr-4 py-4 bg-white border border-stone-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-stone-900/5 transition-all shadow-sm"
                       />
                     </div>
                     <button 
                       onClick={handleCopyAllNames}
                       disabled={filteredMembers.length === 0}
                       className={cn(
-                        "px-4 py-3 bg-white border border-stone-200 rounded-2xl text-stone-600 flex items-center gap-2 transition-all duration-200 ease-out shrink-0 font-medium text-sm shadow-sm",
+                        "w-full sm:w-auto px-6 py-4 bg-white border border-stone-200 rounded-2xl text-stone-600 flex items-center justify-center gap-2 transition-all duration-200 ease-out shrink-0 font-medium text-sm shadow-sm",
                         "hover:scale-[1.02] hover:shadow-[0_0_5px_rgba(0,0,0,0.1)]",
                         "active:brightness-110 active:border-[#00F3FF]",
                         "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:shadow-none",
@@ -463,13 +478,13 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
                             <div 
                               key={member.id} 
                               className={cn(
-                                "p-4 flex items-center justify-between hover:bg-stone-50 transition-colors",
+                                "p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-stone-50 transition-colors",
                                 isSpecialDiet && "bg-amber-50/30 border-l-4 border-amber-400"
                               )}
                             >
                               <div className="flex items-center gap-4">
                                 <div className={cn(
-                                  "w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold",
+                                  "w-12 h-12 rounded-full flex items-center justify-center text-base font-bold",
                                   status === 'present' ? "bg-green-100 text-green-700 font-bold" :
                                   status === 'divergent' ? "bg-purple-100 text-purple-700" :
                                   "bg-stone-100 text-stone-600",
@@ -477,9 +492,30 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
                                 )}>
                                   {member.name.charAt(0)}
                                 </div>
-                                <div>
-                                  <div className="flex items-center gap-2 text-sm">
-                                    <span className="font-medium text-stone-900">{member.name}</span>
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 text-base">
+                                    <span className="font-semibold text-stone-900">{member.name}</span>
+                                    {member.gender && (
+                                      <span className={cn(
+                                        "px-2 py-0.5 rounded text-[10px] font-bold border",
+                                        member.gender === '男' || member.gender === 'M' ? "bg-blue-50 text-blue-600 border-blue-100" : "bg-rose-50 text-rose-600 border-rose-100"
+                                      )}>
+                                        {member.gender === '男' || member.gender === 'M' ? '男' : '女'}
+                                      </span>
+                                    )}
+                                    {(() => {
+                                      if (!currentItinerary?.isMultiVehicle) return null;
+                                      const car = currentItinerary?.vehicleAssignments?.[member.id] || member.carNumber;
+                                      if (!car) return null;
+                                      return (
+                                        <span className={cn(
+                                          "px-2 py-0.5 rounded text-[10px] font-bold border",
+                                          car === 'A' || car === 'A車' ? "bg-amber-50 text-amber-600 border-amber-100" : "bg-blue-50 text-blue-600 border-blue-100"
+                                        )}>
+                                          {car.includes('車') ? car : `${car} 車`}
+                                        </span>
+                                      );
+                                    })()}
                                     {isSpecialDiet && (
                                       <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded text-[10px] font-bold border border-amber-200">
                                         🍖 {member.dietaryHabits}
@@ -487,7 +523,7 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
                                     )}
                                   </div>
                                   {divergentIt && (
-                                    <div className="flex items-center gap-1 text-[10px] text-purple-600 font-bold uppercase tracking-wider mt-1">
+                                    <div className="flex items-center gap-1 text-[11px] text-purple-600 font-bold uppercase tracking-wider mt-1">
                                       <ArrowRight className="w-3 h-3" />
                                       參與脫隊: {divergentIt.title}
                                     </div>
@@ -495,34 +531,43 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
                                 </div>
                               </div>
 
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-2">
                                 {/* Selection Buttons */}
                                 <button 
                                   onClick={() => handleStatusChange(member.id, 'present')}
                                   className={cn(
-                                    "p-2 rounded-xl transition-all",
-                                    status === 'present' ? "bg-green-500 text-white shadow-md scale-110" : "text-stone-300 hover:bg-stone-100"
+                                    "flex-1 sm:flex-none p-3 lg:p-2 rounded-2xl flex items-center justify-center gap-2 transition-all",
+                                    status === 'present' 
+                                      ? "bg-green-500 text-white shadow-md scale-105" 
+                                      : "bg-white text-stone-300 border border-stone-100 hover:bg-stone-50"
                                   )}
                                 >
-                                  <CheckCircle2 className="w-6 h-6" />
+                                  <CheckCircle2 className="w-7 h-7 sm:w-6 sm:h-6" />
+                                  <span className={cn("text-sm font-bold sm:hidden", status === 'present' ? "block" : "hidden")}>出席</span>
                                 </button>
                                 <button 
                                   onClick={() => handleStatusChange(member.id, 'absent')}
                                   className={cn(
-                                    "p-2 rounded-xl transition-all",
-                                    status === 'absent' ? "bg-red-500 text-white shadow-md scale-110" : "text-stone-300 hover:bg-stone-100"
+                                    "flex-1 sm:flex-none p-3 lg:p-2 rounded-2xl flex items-center justify-center gap-2 transition-all",
+                                    status === 'absent' 
+                                      ? "bg-red-500 text-white shadow-md scale-105" 
+                                      : "bg-white text-stone-300 border border-stone-100 hover:bg-stone-50"
                                   )}
                                 >
-                                  <XCircle className="w-6 h-6" />
+                                  <XCircle className="w-7 h-7 sm:w-6 sm:h-6" />
+                                  <span className={cn("text-sm font-bold sm:hidden", status === 'absent' ? "block" : "hidden")}>未到</span>
                                 </button>
                                 <button 
                                   onClick={() => handleStatusChange(member.id, 'divergent')}
                                   className={cn(
-                                    "p-2 rounded-xl transition-all",
-                                    status === 'divergent' ? "bg-purple-500 text-white shadow-md scale-110" : "text-stone-300 hover:bg-stone-100"
+                                    "flex-1 sm:flex-none p-3 lg:p-2 rounded-2xl flex items-center justify-center gap-2 transition-all",
+                                    status === 'divergent' 
+                                      ? "bg-purple-500 text-white shadow-md scale-105" 
+                                      : "bg-white text-stone-300 border border-stone-100 hover:bg-stone-50"
                                   )}
                                 >
-                                  <HelpCircle className="w-6 h-6" />
+                                  <HelpCircle className="w-7 h-7 sm:w-6 sm:h-6" />
+                                  <span className={cn("text-sm font-bold sm:hidden", status === 'divergent' ? "block" : "hidden")}>脫隊</span>
                                 </button>
                               </div>
                             </div>
