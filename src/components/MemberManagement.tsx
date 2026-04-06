@@ -552,26 +552,6 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
                     <option value="女">女 (Female)</option>
                   </select>
                 </div>
-                <div className="col-span-1">
-                  <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-1 flex justify-between items-center">
-                    <span>所屬組別 (Group)</span>
-                    {!isAddingMember && editingMember?.isLeader && (
-                      <span className="text-[10px] text-amber-600 font-bold bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100">組長不可更改小組</span>
-                    )}
-                  </label>
-                  <select 
-                    disabled={!isAddingMember && editingMember?.isLeader}
-                    value={isAddingMember ? newMember.groupId : editingMember?.groupId}
-                    onChange={(e) => isAddingMember ? setNewMember({...newMember, groupId: e.target.value}) : setEditingMember({...editingMember!, groupId: e.target.value})}
-                    className={cn(
-                      "w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900/5",
-                      !isAddingMember && editingMember?.isLeader && "opacity-60 cursor-not-allowed bg-stone-100"
-                    )}
-                  >
-                    <option value="">尚未分組</option>
-                    {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
-                  </select>
-                </div>
                 <div className="col-span-2">
                   {(() => {
                     const currentGroupId = isAddingMember ? newMember.groupId : editingMember?.groupId;
@@ -579,32 +559,59 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
                     const isAlreadyLeader = isAddingMember ? newMember.isLeader : editingMember?.isLeader;
 
                     return (
-                      <div className="flex flex-col gap-1">
-                        <label className={cn(
-                          "flex items-center gap-2 cursor-pointer group/leader",
-                          existingLeader && !isAlreadyLeader && "cursor-not-allowed opacity-50"
-                        )}>
-                          <div 
-                            onClick={() => {
-                              if (existingLeader && !isAlreadyLeader) return;
-                              if (isAddingMember) setNewMember({...newMember, isLeader: !newMember.isLeader});
-                              else setEditingMember({...editingMember!, isLeader: !editingMember!.isLeader});
-                            }}
-                            className={cn(
-                              "w-5 h-5 rounded border transition-all flex items-center justify-center",
-                              isAlreadyLeader
-                                ? "bg-amber-500 border-amber-500 text-white"
-                                : "bg-white border-stone-200 group-hover/leader:border-amber-400"
-                            )}
-                          >
-                            {isAlreadyLeader && <Check className="w-3.5 h-3.5" />}
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-end gap-6">
+                          <div className="flex-1">
+                            <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-1 flex justify-between items-center">
+                              <span>所屬組別 (Group)</span>
+                              {!isAddingMember && editingMember?.isLeader && (
+                                <span className="text-[10px] text-amber-600 font-bold bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100">組長不可更改小組</span>
+                              )}
+                            </label>
+                            <select 
+                              disabled={!isAddingMember && editingMember?.isLeader}
+                              value={isAddingMember ? newMember.groupId : editingMember?.groupId}
+                              onChange={(e) => isAddingMember ? setNewMember({...newMember, groupId: e.target.value}) : setEditingMember({...editingMember!, groupId: e.target.value})}
+                              className={cn(
+                                "w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900/5",
+                                !isAddingMember && editingMember?.isLeader && "opacity-60 cursor-not-allowed bg-stone-100"
+                              )}
+                            >
+                              <option value="">尚未分組</option>
+                              {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                            </select>
                           </div>
-                          <span className="text-sm font-medium text-stone-600">設為此小組之組長</span>
-                        </label>
+                          <div className="pb-3">
+                            <label className={cn(
+                              "flex items-center gap-2 cursor-pointer group/leader transition-all",
+                              existingLeader && !isAlreadyLeader && "cursor-not-allowed opacity-50"
+                            )}>
+                              <div 
+                                onClick={() => {
+                                  if (existingLeader && !isAlreadyLeader) return;
+                                  if (isAddingMember) setNewMember({...newMember, isLeader: !newMember.isLeader});
+                                  else setEditingMember({...editingMember!, isLeader: !editingMember!.isLeader});
+                                }}
+                                className={cn(
+                                  "w-6 h-6 rounded-lg border transition-all flex items-center justify-center shadow-sm",
+                                  isAlreadyLeader
+                                    ? "bg-amber-500 border-amber-500 text-white shadow-amber-200"
+                                    : "bg-white border-stone-200 group-hover/leader:border-amber-400"
+                                )}
+                              >
+                                {isAlreadyLeader && <Check className="w-4 h-4" strokeWidth={3} />}
+                              </div>
+                              <div className="flex flex-col">
+                                <span className="text-xs font-bold text-stone-900 leading-none">設為小組長</span>
+                                <span className="text-[9px] text-stone-400 font-bold uppercase tracking-tighter mt-1">Set as Leader</span>
+                              </div>
+                            </label>
+                          </div>
+                        </div>
                         {existingLeader && !isAlreadyLeader && (
-                          <p className="text-[10px] text-amber-600 font-medium ml-7">
-                            ⚠️ 此小組已有組長 ({existingLeader.name})，不可重複設定。
-                          </p>
+                          <div className="flex items-center gap-2 bg-amber-50 border border-amber-100 px-3 py-2 rounded-xl">
+                            <span className="text-[10px] text-amber-600 font-bold">⚠️ 此小組已有組長 ({existingLeader.name})，不可重複設定。</span>
+                          </div>
                         )}
                       </div>
                     );

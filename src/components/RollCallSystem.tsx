@@ -456,7 +456,7 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
                       </div>
                     )}
 
-                    <div className="flex-1 overflow-y-auto divide-y divide-stone-100">
+                    <div className="flex-1 overflow-y-auto">
                       {(() => {
                         const isMainstream = (h?: string) => !h || h.includes('葷') || h === '一般' || h === 'None';
                         
@@ -469,7 +469,7 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
                           return 0;
                         });
 
-                        return sortedMembers.map((member) => {
+                        const renderMemberItem = (member: Member) => {
                           const status = latestRollCall?.statusMap[member.id] || 'absent';
                           const divergentIt = getDivergentItinerary(member.id);
                           const isSpecialDiet = currentItinerary?.type === 'dining' && !isMainstream(member.dietaryHabits);
@@ -478,7 +478,7 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
                             <div 
                               key={member.id} 
                               className={cn(
-                                "p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-stone-50 transition-colors",
+                                "p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-stone-50 transition-colors border-b border-stone-100",
                                 isSpecialDiet && "bg-amber-50/30 border-l-4 border-amber-400"
                               )}
                             >
@@ -507,12 +507,13 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
                                       if (!currentItinerary?.isMultiVehicle) return null;
                                       const car = currentItinerary?.vehicleAssignments?.[member.id] || member.carNumber;
                                       if (!car) return null;
+                                      const isA = car === 'A' || car === 'A車';
                                       return (
                                         <span className={cn(
                                           "px-2 py-0.5 rounded text-[10px] font-bold border",
-                                          car === 'A' || car === 'A車' ? "bg-amber-50 text-amber-600 border-amber-100" : "bg-blue-50 text-blue-600 border-blue-100"
+                                          isA ? "bg-amber-50 text-amber-600 border-amber-100" : "bg-blue-50 text-blue-600 border-blue-100"
                                         )}>
-                                          {car.includes('車') ? car : `${car} 車`}
+                                          {isA ? 'A 車' : 'B 車'}
                                         </span>
                                       );
                                     })()}
@@ -532,7 +533,6 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
                               </div>
 
                               <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-2">
-                                {/* Selection Buttons */}
                                 <button 
                                   onClick={() => handleStatusChange(member.id, 'present')}
                                   className={cn(
@@ -572,7 +572,45 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
                               </div>
                             </div>
                           );
-                        });
+                        };
+
+                        if (currentItinerary?.isMultiVehicle) {
+                          const carA = sortedMembers.filter(m => {
+                            const car = currentItinerary.vehicleAssignments?.[m.id] || m.carNumber;
+                            return !car || car === 'A' || car === 'A車';
+                          });
+                          const carB = sortedMembers.filter(m => {
+                            const car = currentItinerary.vehicleAssignments?.[m.id] || m.carNumber;
+                            return car === 'B' || car === 'B車';
+                          });
+
+                          return (
+                            <div className="divide-y divide-stone-100">
+                              {carA.length > 0 && (
+                                <div className="bg-stone-50/50">
+                                  <div className="px-5 py-3 bg-amber-500/10 border-b border-amber-500/20 flex items-center justify-between">
+                                    <span className="text-[10px] font-black tracking-widest text-amber-600 uppercase">A 車名單 ({carA.length} 人)</span>
+                                    {currentItinerary?.vehicleAssignments && (
+                                      <span className="text-[10px] font-bold text-amber-500 bg-white/50 px-1.5 py-0.5 rounded">動態車序</span>
+                                    )}
+                                  </div>
+                                  {carA.map(renderMemberItem)}
+                                </div>
+                              )}
+                              {carB.length > 0 && (
+                                <div className="bg-stone-50/50">
+                                  <div className="px-5 py-3 bg-blue-500/10 border-b border-blue-500/20 flex items-center justify-between">
+                                    <span className="text-[10px] font-black tracking-widest text-blue-600 uppercase">B 車名單 ({carB.length} 人)</span>
+                                    <span className="text-[10px] font-bold text-blue-500 bg-white/50 px-1.5 py-0.5 rounded">動態車序</span>
+                                  </div>
+                                  {carB.map(renderMemberItem)}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        }
+
+                        return sortedMembers.map(renderMemberItem);
                       })()}
                       {filteredMembers.length === 0 && (
                         <div className="p-12 text-center text-stone-400">
