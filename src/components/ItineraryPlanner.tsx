@@ -12,7 +12,8 @@ import {
   Users,
   Check,
   Settings,
-  Search
+  Search,
+  X
 } from 'lucide-react';
 import { 
   collection, 
@@ -57,6 +58,7 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
 
   const [activeDate, setActiveDate] = useState<string>(safeFormat(new Date(), 'yyyy-MM-dd'));
   const [memberSearchTerm, setMemberSearchTerm] = useState('');
+  const [newGroupName, setNewGroupName] = useState('');
 
   const [newItem, setNewItem] = useState<{
     title: string;
@@ -79,7 +81,10 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
     excludedMemberIds: [],
     assignedMemberIds: [],
     vehicleAssignments: {},
-    isMultiVehicle: false
+    isMultiVehicle: false,
+    groupAssignments: {},
+    isGrouped: false,
+    groups: []
   });
 
   // Fetch trip settings
@@ -183,6 +188,9 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
         dayIndex: tripDates.indexOf(activeDate),
         vehicleAssignments: newItem.vehicleAssignments || {},
         isMultiVehicle: newItem.isMultiVehicle || false,
+        groupAssignments: newItem.groupAssignments || {},
+        isGrouped: newItem.isGrouped || false,
+        groups: newItem.groups || [],
         id: Date.now().toString()
       });
       await updateDoc(docRef, { id: docRef.id });
@@ -193,8 +201,12 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
         excludedMemberIds: [],
         assignedMemberIds: [],
         vehicleAssignments: {},
-        isMultiVehicle: false
+        isMultiVehicle: false,
+        groupAssignments: {},
+        isGrouped: false,
+        groups: []
       });
+      setSelectedMembers([]);
       setMemberSearchTerm('');
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'itineraries');
@@ -223,7 +235,10 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
         excludedMemberIds: newItem.isMain ? selectedMembers : [],
         dayIndex: tripDates.indexOf(activeDate),
         vehicleAssignments: newItem.vehicleAssignments || {},
-        isMultiVehicle: newItem.isMultiVehicle || false
+        isMultiVehicle: newItem.isMultiVehicle || false,
+        groupAssignments: newItem.groupAssignments || {},
+        isGrouped: newItem.isGrouped || false,
+        groups: newItem.groups || []
       });
       setEditing(null);
       setSelectedMembers([]);
@@ -280,7 +295,10 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
       excludedMemberIds: it.excludedMemberIds || [],
       assignedMemberIds: it.assignedMemberIds || [],
       vehicleAssignments: it.vehicleAssignments || {},
-      isMultiVehicle: it.isMultiVehicle || false
+      isMultiVehicle: it.isMultiVehicle || false,
+      groupAssignments: it.groupAssignments || {},
+      isGrouped: it.isGrouped || false,
+      groups: it.groups || []
     });
     setSelectedMembers(it.isMain ? (it.excludedMemberIds || []) : (it.assignedMemberIds || []));
   };
@@ -318,9 +336,16 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
                   location: { address: '', navLink: '' }, notes: '', isMain: true,
                   excludedMemberIds: [], assignedMemberIds: [],
                   vehicleAssignments: {},
-                  isMultiVehicle: false
+                  isMultiVehicle: false,
+                  groupAssignments: {},
+                  isGrouped: false,
+                  groups: []
                 });
-                setSelectedMembers([]);
+                // 預設排除 3天及以下 或 本來就在日本 的成員
+                const defaultExcluded = members
+                  .filter(m => (m.tripDays && m.tripDays <= 3) || m.outboundFlight === '日本')
+                  .map(m => m.id);
+                setSelectedMembers(defaultExcluded);
               }}
               className="flex items-center gap-2 bg-stone-900 text-white px-6 py-2 rounded-full text-sm font-medium hover:bg-stone-800 transition-colors shadow-sm whitespace-nowrap"
             >
@@ -518,55 +543,123 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
                             </div>
                           )}
 
+                          {it.type !== 'accommodation' && it.isGrouped && (
+                            <div className="w-full mt-3 p-3 bg-purple-50/50 rounded-xl border border-purple-100/50">
+                              <div className="flex flex-wrap gap-3">
+                                {(() => {
+                                  const assignments = it.groupAssignments || {};
+                                  const groupNames = Array.from(new Set(Object.values(assignments))).filter(Boolean);
+                                  const participants = it.isMain 
+                                    ? members.filter(m => !it.excludedMemberIds?.includes(m.id))
+                                    : members.filter(m => it.assignedMemberIds?.includes(m.id));
+
+                                  return groupNames.map(gn => (
+                                    <div key={gn} className="flex flex-col gap-1 min-w-[80px]">
+                                      <div className="text-[9px] font-black text-purple-500 uppercase tracking-tighter">
+                                        {gn} ({participants.filter(m => assignments[m.id] === gn).length}人)
+                                      </div>
+                                      <div className="flex flex-wrap gap-1">
+                                        {participants.filter(m => assignments[m.id] === gn).map(m => (
+                                          <span key={m.id} className="text-[9px] text-purple-700 bg-white px-1 py-0.5 rounded border border-purple-100 shadow-sm">
+                                            {m.name}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ));
+                                })()}
+                              </div>
+                            </div>
+                          )}
+
                           {it.type === 'accommodation' && (
                             <div className="w-full mt-4 p-4 bg-stone-50 rounded-2xl border border-stone-200">
-                              <h4 className="text-xs font-bold text-stone-500 uppercase tracking-wider mb-3">住宿分配名單</h4>
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
-                                  <div className="text-[10px] font-bold text-blue-500 uppercase mb-2 flex items-center gap-1">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-                                    男生名單 (Males)
+                              <h4 className="text-xs font-bold text-stone-500 uppercase tracking-wider mb-3 flex items-center justify-between">
+                                <span>{it.isGrouped ? '房間分配名單' : '住宿分配名單'}</span>
+                                {it.isGrouped && (
+                                  <span className="text-[9px] bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded font-bold">自定義分房</span>
+                                )}
+                              </h4>
+                              
+                              {it.isGrouped ? (
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                  {(() => {
+                                    const assignments = it.groupAssignments || {};
+                                    const groupNames = Array.from(new Set(Object.values(assignments))).filter(Boolean);
+                                    const participants = it.isMain 
+                                      ? members.filter(m => !it.excludedMemberIds?.includes(m.id))
+                                      : members.filter(m => it.assignedMemberIds?.includes(m.id));
+
+                                    return groupNames.map(gn => (
+                                      <div key={gn} className="bg-white/60 p-2 rounded-xl border border-stone-100">
+                                        <div className="text-[10px] font-black text-purple-600 uppercase mb-1.5 flex items-center gap-1.5">
+                                          <div className="w-1 h-1 rounded-full bg-purple-400" />
+                                          {gn}
+                                        </div>
+                                        <div className="flex flex-wrap gap-1">
+                                          {participants.filter(m => assignments[m.id] === gn).map(m => (
+                                            <span key={m.id} className="text-[10px] text-stone-600 bg-stone-50 px-1.5 py-0.5 rounded border border-stone-100">
+                                              {m.name}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    ));
+                                  })()}
+                                  {(!it.groupAssignments || Object.keys(it.groupAssignments).length === 0) && (
+                                    <div className="col-span-full py-4 text-center border-2 border-dashed border-stone-200 rounded-2xl">
+                                      <p className="text-[10px] text-stone-400 font-medium">尚未設定房間分配</p>
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  <div>
+                                    <div className="text-[10px] font-bold text-blue-500 uppercase mb-2 flex items-center gap-1">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                                      男生名單 (Males)
+                                    </div>
+                                    <div className="flex flex-wrap gap-1">
+                                      {(it.isMain 
+                                        ? members.filter(m => !it.excludedMemberIds?.includes(m.id))
+                                        : members.filter(m => it.assignedMemberIds?.includes(m.id))
+                                      ).filter(m => m.gender === '男' || m.gender === 'M').map(m => (
+                                        <span key={m.id} className="px-2 py-0.5 bg-white border border-stone-200 rounded text-[10px] text-stone-600">
+                                          {m.name}
+                                        </span>
+                                      ))}
+                                      {(it.isMain 
+                                        ? members.filter(m => !it.excludedMemberIds?.includes(m.id))
+                                        : members.filter(m => it.assignedMemberIds?.includes(m.id))
+                                      ).filter(m => m.gender === '男' || m.gender === 'M').length === 0 && (
+                                        <span className="text-[10px] text-stone-300 italic">無</span>
+                                      )}
+                                    </div>
                                   </div>
-                                  <div className="flex flex-wrap gap-1">
-                                    {(it.isMain 
-                                      ? members.filter(m => !it.excludedMemberIds?.includes(m.id))
-                                      : members.filter(m => it.assignedMemberIds?.includes(m.id))
-                                    ).filter(m => m.gender === '男' || m.gender === 'M').map(m => (
-                                      <span key={m.id} className="px-2 py-0.5 bg-white border border-stone-200 rounded text-[10px] text-stone-600">
-                                        {m.name}
-                                      </span>
-                                    ))}
-                                    {(it.isMain 
-                                      ? members.filter(m => !it.excludedMemberIds?.includes(m.id))
-                                      : members.filter(m => it.assignedMemberIds?.includes(m.id))
-                                    ).filter(m => m.gender === '男' || m.gender === 'M').length === 0 && (
-                                      <span className="text-[10px] text-stone-300 italic">無</span>
-                                    )}
+                                  <div>
+                                    <div className="text-[10px] font-bold text-rose-500 uppercase mb-2 flex items-center gap-1">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                                      女生名單 (Females)
+                                    </div>
+                                    <div className="flex flex-wrap gap-1">
+                                      {(it.isMain 
+                                        ? members.filter(m => !it.excludedMemberIds?.includes(m.id))
+                                        : members.filter(m => it.assignedMemberIds?.includes(m.id))
+                                      ).filter(m => m.gender === '女' || m.gender === 'F').map(m => (
+                                        <span key={m.id} className="px-2 py-0.5 bg-white border border-stone-200 rounded text-[10px] text-stone-600">
+                                          {m.name}
+                                        </span>
+                                      ))}
+                                      {(it.isMain 
+                                        ? members.filter(m => !it.excludedMemberIds?.includes(m.id))
+                                        : members.filter(m => it.assignedMemberIds?.includes(m.id))
+                                      ).filter(m => m.gender === '女' || m.gender === 'F').length === 0 && (
+                                        <span className="text-[10px] text-stone-300 italic">無</span>
+                                      )}
+                                    </div>
                                   </div>
                                 </div>
-                                <div>
-                                  <div className="text-[10px] font-bold text-rose-500 uppercase mb-2 flex items-center gap-1">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                                    女生名單 (Females)
-                                  </div>
-                                  <div className="flex flex-wrap gap-1">
-                                    {(it.isMain 
-                                      ? members.filter(m => !it.excludedMemberIds?.includes(m.id))
-                                      : members.filter(m => it.assignedMemberIds?.includes(m.id))
-                                    ).filter(m => m.gender === '女' || m.gender === 'F').map(m => (
-                                      <span key={m.id} className="px-2 py-0.5 bg-white border border-stone-200 rounded text-[10px] text-stone-600">
-                                        {m.name}
-                                      </span>
-                                    ))}
-                                    {(it.isMain 
-                                      ? members.filter(m => !it.excludedMemberIds?.includes(m.id))
-                                      : members.filter(m => it.assignedMemberIds?.includes(m.id))
-                                    ).filter(m => m.gender === '女' || m.gender === 'F').length === 0 && (
-                                      <span className="text-[10px] text-stone-300 italic">無</span>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
+                              )}
                             </div>
                           )}
 
@@ -1094,9 +1187,218 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
                     </div>
                   )}
 
-                  {members.filter(m => m.name.toLowerCase().includes(memberSearchTerm.toLowerCase())).length === 0 && (
-                    <p className="text-center py-4 text-xs text-stone-400">找不到符合搜尋條件的團員。</p>
-                  )}
+                  {/* Dynamic Grouping / Rooming Section */}
+                  <div className="mt-6 p-6 bg-stone-50 rounded-2xl border border-stone-200">
+                    <div className="flex flex-col gap-4 mb-4 pb-4 border-b border-stone-100">
+                      <div className="flex items-center justify-between">
+                        <label className="text-sm font-bold text-stone-900 border-l-4 border-purple-400 pl-3">
+                          {newItem.type === 'accommodation' ? '動態分房設定 (Room Assignments)' : '動態分組設定 (Group Assignments)'}
+                          <span className="ml-2 px-2 py-0.5 bg-stone-100 text-stone-400 text-[10px] rounded-full font-normal">
+                            共 {(newItem.isMain ? members.filter(m => !selectedMembers.includes(m.id)) : members.filter(m => selectedMembers.includes(m.id))).length} 人
+                          </span>
+                        </label>
+
+                        <div 
+                          onClick={() => setNewItem({...newItem, isGrouped: !newItem.isGrouped})}
+                          className="flex items-center gap-2 cursor-pointer group bg-white px-3 py-1.5 rounded-full border border-stone-200 hover:border-purple-400 transition-all shadow-sm"
+                        >
+                          <div className={cn(
+                            "relative w-10 h-5 rounded-full transition-colors",
+                            newItem.isGrouped ? "bg-purple-500" : "bg-stone-200"
+                          )}>
+                            <div className={cn(
+                              "absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform shadow-sm",
+                              newItem.isGrouped ? "translate-x-5" : ""
+                            )} />
+                          </div>
+                          <span className="text-xs font-bold text-stone-500 group-hover:text-purple-600 transition-colors">自定義{newItem.type === 'accommodation' ? '房間' : '分組'}</span>
+                        </div>
+                      </div>
+
+                      {newItem.isGrouped && (
+                        <div className="flex flex-col gap-3">
+                          <form 
+                            onSubmit={(e) => {
+                              e.preventDefault();
+                              if (!newGroupName.trim()) return;
+                              if (!newItem.groups.includes(newGroupName.trim())) {
+                                setNewItem({...newItem, groups: [...newItem.groups, newGroupName.trim()]});
+                              }
+                              setNewGroupName('');
+                            }}
+                            className="flex gap-2"
+                          >
+                            <input 
+                              type="text" 
+                              placeholder={`新增${newItem.type === 'accommodation' ? '房間' : '組別'}名稱 (如: 301, 101, 第一組)...`}
+                              value={newGroupName}
+                              onChange={(e) => setNewGroupName(e.target.value)}
+                              className="flex-1 px-3 py-1.5 bg-white border border-stone-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-purple-900/5"
+                            />
+                            <button 
+                              type="submit"
+                              className="px-4 py-1.5 bg-purple-600 text-white rounded-xl text-xs font-bold hover:bg-purple-700 transition-colors shadow-sm"
+                            >
+                              新增
+                            </button>
+                          </form>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setNewItem({...newItem, groupAssignments: {}, groups: []})}
+                              className="px-3 py-1.5 bg-white border border-stone-200 rounded-xl text-[10px] font-bold text-red-500 hover:bg-red-50 hover:border-red-200 transition-all shadow-sm"
+                            >
+                              重設所有{newItem.type === 'accommodation' ? '客房' : '分組'} (Reset)
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {newItem.isGrouped ? (
+                      <div className="space-y-6">
+                        {/* Defined Groups */}
+                        {(() => {
+                          const assignments = newItem.groupAssignments || {};
+                          // Use the explicitly defined groups list
+                          const groupNames = newItem.groups || [];
+                          const participants = newItem.isMain 
+                            ? members.filter(m => !selectedMembers.includes(m.id))
+                            : members.filter(m => selectedMembers.includes(m.id));
+
+                          return (
+                            <>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                {groupNames.map(gn => (
+                                  <div key={gn} className="flex flex-col gap-2 relative group">
+                                    <div className="bg-purple-500/10 border border-purple-500/20 py-2 px-3 rounded-xl flex items-center justify-between">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-[10px] font-black tracking-widest text-purple-600 uppercase">{gn}</span>
+                                        <span className="text-[10px] font-bold text-purple-500 bg-white/50 px-1.5 py-0.5 rounded">
+                                          {participants.filter(m => assignments[m.id] === gn).length} 人
+                                        </span>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const nextGroups = newItem.groups.filter(g => g !== gn);
+                                          const nextAssignments = { ...assignments };
+                                          Object.keys(nextAssignments).forEach(mid => {
+                                            if (nextAssignments[mid] === gn) delete nextAssignments[mid];
+                                          });
+                                          setNewItem({...newItem, groups: nextGroups, groupAssignments: nextAssignments});
+                                        }}
+                                        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-100 rounded-full text-red-500 transition-all"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                    <div className="min-h-[60px] max-h-40 overflow-y-auto bg-stone-100/30 p-2 border border-stone-100 rounded-2xl flex flex-wrap gap-1">
+                                      {participants.filter(m => assignments[m.id] === gn).map(m => (
+                                        <div 
+                                          key={m.id}
+                                          onClick={() => {
+                                            const next = { ...assignments };
+                                            delete next[m.id];
+                                            setNewItem({ ...newItem, groupAssignments: next });
+                                          }}
+                                          className="px-2 py-1 bg-white border border-stone-200 rounded-lg shadow-xs text-[10px] text-stone-600 cursor-pointer hover:bg-red-50 hover:text-red-500 hover:border-red-100 transition-all flex items-center gap-1"
+                                        >
+                                          {m.name}
+                                          <X className="w-2 h-2 opacity-50" />
+                                        </div>
+                                      ))}
+                                      {participants.filter(m => assignments[m.id] === gn).length === 0 && (
+                                        <span className="text-[9px] text-stone-300 italic p-1">尚無人員</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                ))}
+                                {groupNames.length === 0 && (
+                                  <div className="col-span-full py-8 text-center bg-stone-100/30 border-2 border-dashed border-stone-200 rounded-3xl">
+                                    <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">請先於上方新增{newItem.type === 'accommodation' ? '房間 (房號)' : '分組名稱'}</p>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Unassigned Pool */}
+                              <div className="pt-4 border-t border-stone-100">
+                                <label className="block text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-2">未分配參與者 (Unassigned Personnel)</label>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {participants.filter(m => !assignments[m.id]).map(m => (
+                                    <div 
+                                      key={m.id}
+                                      className="flex overflow-hidden rounded-lg border border-stone-200 shadow-sm"
+                                    >
+                                      <div className="px-2 py-1 bg-white text-[10px] text-stone-600 border-r border-stone-100 font-medium">
+                                        {m.name}
+                                      </div>
+                                      {groupNames.length > 0 ? (
+                                        <div className="flex bg-stone-50">
+                                          {groupNames.slice(0, 3).map(gn => (
+                                            <button 
+                                              key={gn}
+                                              type="button"
+                                              onClick={() => {
+                                                const next = { ...assignments, [m.id]: gn };
+                                                setNewItem({ ...newItem, groupAssignments: next });
+                                              }}
+                                              className="px-2 py-1 hover:bg-purple-600 hover:text-white text-stone-400 text-[9px] transition-colors border-r border-stone-100 last:border-r-0"
+                                            >
+                                              {gn}
+                                            </button>
+                                          ))}
+                                          {groupNames.length > 3 && (
+                                            <button 
+                                              type="button"
+                                              onClick={() => {
+                                                const gn = prompt(`請輸入要將 ${m.name} 指派到的${newItem.type === 'accommodation' ? '房號/名稱' : '組別名稱'}:`, (groupNames[0] as string) || '');
+                                                if (gn) {
+                                                  if (!newItem.groups.includes(gn)) {
+                                                    setNewItem({ ...newItem, groups: [...newItem.groups, gn], groupAssignments: { ...assignments, [m.id]: gn } });
+                                                  } else {
+                                                    setNewItem({ ...newItem, groupAssignments: { ...assignments, [m.id]: gn } });
+                                                  }
+                                                }
+                                              }}
+                                              className="px-2 py-1 hover:bg-purple-600 hover:text-white text-stone-400 text-[9px] transition-colors"
+                                            >
+                                              更多..
+                                            </button>
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <button 
+                                          type="button"
+                                          disabled
+                                          className="px-2 py-1 bg-stone-100 text-stone-300 text-[9px] cursor-not-allowed"
+                                        >
+                                          請先建立房號/組別
+                                        </button>
+                                      )}
+                                    </div>
+                                  ))}
+                                  {participants.filter(m => !assignments[m.id]).length === 0 && (
+                                    <div className="w-full text-center py-4 bg-green-50/50 rounded-xl border border-dashed border-green-100">
+                                      <p className="text-[10px] text-green-600 font-bold uppercase tracking-widest flex items-center justify-center gap-2">
+                                        <Check className="w-3 h-3" /> 所有人員已分配完畢
+                                      </p>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </div>
+                    ) : (
+                      <div className="p-4 bg-stone-100/50 border border-stone-200 rounded-2xl text-center">
+                        <p className="text-[10px] text-stone-500 font-bold mb-2 uppercase tracking-widest">目前共 {(newItem.isMain ? members.filter(m => !selectedMembers.includes(m.id)) : members.filter(m => selectedMembers.includes(m.id))).length} 人</p>
+                        <p className="text-[10px] text-stone-400 italic">全體統一活動，未開啟細分{newItem.type === 'accommodation' ? '客房' : '組別'}。</p>
+                      </div>
+                    )}
+                  </div>
+
                   <p className="text-[10px] text-stone-400 mt-2">
                     {newItem.isMain ? `已排除 ${selectedMembers.length} 名團員 (其餘全員參加)` : `已指派 ${selectedMembers.length} 位參與者`}
                   </p>

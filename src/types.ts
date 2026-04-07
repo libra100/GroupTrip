@@ -39,6 +39,9 @@ export interface Itinerary {
   dayIndex?: number;
   vehicleAssignments?: Record<string, string>;
   isMultiVehicle?: boolean;
+  groupAssignments?: Record<string, string>;
+  isGrouped?: boolean;
+  groups?: string[];
 }
 
 export interface RollCall {
