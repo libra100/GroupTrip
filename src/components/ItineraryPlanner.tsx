@@ -477,6 +477,16 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
                             )}>
                               {getTypeLabel(it.type)}
                             </span>
+                            
+                            {it.type !== 'transit' && (
+                              <span className="px-3 py-1 rounded-full bg-stone-100 text-stone-600 border border-stone-200 text-[10px] font-bold">
+                                {(it.isMain 
+                                  ? members.filter(m => !it.excludedMemberIds?.includes(m.id))
+                                  : members.filter(m => it.assignedMemberIds?.includes(m.id))
+                                ).length} 人
+                              </span>
+                            )}
+
                             {it.type === 'transit' && (
                               <div className="flex items-center gap-1.5 font-bold text-[10px] uppercase tracking-wider">
                                 {!it.isMultiVehicle ? (
