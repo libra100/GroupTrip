@@ -543,7 +543,7 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
                             </div>
                           )}
 
-                          {it.type !== 'accommodation' && it.isGrouped && (
+                          {it.type !== 'accommodation' && it.type !== 'transit' && it.isGrouped && (
                             <div className="w-full mt-3 p-3 bg-purple-50/50 rounded-xl border border-purple-100/50">
                               <div className="flex flex-wrap gap-3">
                                 {(() => {
@@ -1187,8 +1187,9 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
                     </div>
                   )}
 
-                  {/* Dynamic Grouping / Rooming Section */}
-                  <div className="mt-6 p-6 bg-stone-50 rounded-2xl border border-stone-200">
+                  {/* Dynamic Grouping / Rooming Section - Excluded for Transit */}
+                  {newItem.type !== 'transit' && (
+                    <div className="mt-6 p-6 bg-stone-50 rounded-2xl border border-stone-200">
                     <div className="flex flex-col gap-4 mb-4 pb-4 border-b border-stone-100">
                       <div className="flex items-center justify-between">
                         <label className="text-sm font-bold text-stone-900 border-l-4 border-purple-400 pl-3">
@@ -1398,6 +1399,7 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
                       </div>
                     )}
                   </div>
+                  )}
 
                   <p className="text-[10px] text-stone-400 mt-2">
                     {newItem.isMain ? `已排除 ${selectedMembers.length} 名團員 (其餘全員參加)` : `已指派 ${selectedMembers.length} 位參與者`}
