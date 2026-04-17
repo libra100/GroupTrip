@@ -1,33 +1,34 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Itinerary, Member, Group, ItineraryType } from '../types';
-import { 
-  Plus, 
-  Calendar, 
-  MapPin, 
-  Clock, 
-  Trash2, 
-  Edit2, 
-  ExternalLink,
-  Users,
-  Check,
-  Settings,
-  Search,
-  X
-} from 'lucide-react';
-import { 
-  collection, 
-  addDoc, 
-  deleteDoc, 
-  doc, 
-  updateDoc,
-  setDoc,
-  onSnapshot,
-  Timestamp
-} from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../firebase';
+import { Itinerary, Member, Group, ItineraryType, TripSettings, DailyAbsence } from '../types';
 import { format, parseISO, addDays, differenceInDays } from 'date-fns';
 import { cn } from '../lib/utils';
+import { doc, onSnapshot, Timestamp, setDoc, addDoc, updateDoc, deleteDoc, collection } from 'firebase/firestore';
+import { db } from '../firebase';
+import DailyAbsenceManager from './DailyAbsenceManager';
+import { 
+  Plus, 
+  MapPin, 
+  Clock, 
+  Users, 
+  Settings, 
+  Trash2, 
+  Edit2, 
+  Save, 
+  X, 
+  Check, 
+  Calendar,
+  MessageSquare,
+  Car,
+  ChevronRight,
+  Info,
+  ExternalLink,
+  UserX,
+  History,
+  Copy,
+  LayoutGrid,
+  Search
+} from 'lucide-react';
 
 const safeFormat = (date: Date | null | number | undefined, formatStr: string) => {
   if (!date) return '';
@@ -40,19 +41,19 @@ interface ItineraryPlannerProps {
   itineraries: Itinerary[];
   members: Member[];
   groups: Group[];
+  tripSettings: TripSettings | null;
 }
 
-interface TripSettings {
-  startDate: string;
-  endDate: string;
-}
-
-export default function ItineraryPlanner({ itineraries, members, groups }: ItineraryPlannerProps) {
+export default function ItineraryPlanner({ 
+  itineraries, 
+  members, 
+  groups,
+  tripSettings
+}: ItineraryPlannerProps) {
   const [isAdding, setIsAdding] = useState(false);
   const [editing, setEditing] = useState<Itinerary | null>(null);
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
   
-  const [tripSettings, setTripSettings] = useState<TripSettings | null>(null);
   const [isSettingTrip, setIsSettingTrip] = useState(false);
   const [tempSettings, setTempSettings] = useState<TripSettings>({ startDate: '', endDate: '' });
 
@@ -70,6 +71,12 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
     isMain: boolean;
     excludedMemberIds: string[];
     accommodationDetail: string;
+    assignedMemberIds: string[];
+    vehicleAssignments: Record<string, string>;
+    isMultiVehicle: boolean;
+    groupAssignments: Record<string, string>;
+    isGrouped: boolean;
+    groups: string[];
   }>({
     title: '',
     type: 'attraction',
@@ -87,18 +94,13 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
     groups: []
   });
 
-  // Fetch trip settings
-  useEffect(() => {
-    const unsub = onSnapshot(doc(db, 'settings', 'tripSettings'), (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data() as TripSettings;
-        setTripSettings(data);
-      } else {
-        setTripSettings(null);
-      }
-    });
-    return () => unsub();
-  }, []);
+  const [isAbsenceModalOpen, setIsAbsenceModalOpen] = useState(false);
+
+  // Daily absences are now derived from tripSettings
+  const dailyAbsenceIds = useMemo(() => {
+    if (!activeDate || !tripSettings?.dailyAbsences) return [];
+    return tripSettings.dailyAbsences[activeDate] || [];
+  }, [activeDate, tripSettings]);
 
   // Generate date array from trip settings
   const tripDates = React.useMemo(() => {
@@ -175,6 +177,10 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
       const startDateTime = new Date(`${activeDate}T${newItem.startTimeStr}`);
       const endDateTime = newItem.endTimeStr ? new Date(`${activeDate}T${newItem.endTimeStr}`) : null;
 
+      const finalMembers = newItem.isMain
+        ? [...new Set([...selectedMembers, ...dailyAbsenceIds])]
+        : selectedMembers.filter(id => !dailyAbsenceIds.includes(id));
+
       const docRef = await addDoc(collection(db, 'itineraries'), {
         title: newItem.title,
         type: newItem.type,
@@ -183,8 +189,8 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
         isMain: newItem.isMain,
         startTime: Timestamp.fromDate(startDateTime),
         endTime: endDateTime ? Timestamp.fromDate(endDateTime) : null,
-        assignedMemberIds: newItem.isMain ? [] : selectedMembers,
-        excludedMemberIds: newItem.isMain ? selectedMembers : [],
+        assignedMemberIds: newItem.isMain ? [] : finalMembers,
+        excludedMemberIds: newItem.isMain ? finalMembers : [],
         dayIndex: tripDates.indexOf(activeDate),
         vehicleAssignments: newItem.vehicleAssignments || {},
         isMultiVehicle: newItem.isMultiVehicle || false,
@@ -221,6 +227,10 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
       const startDateTime = new Date(`${activeDate}T${newItem.startTimeStr}`);
       const endDateTime = newItem.endTimeStr ? new Date(`${activeDate}T${newItem.endTimeStr}`) : null;
 
+      const finalMembers = newItem.isMain
+        ? [...new Set([...selectedMembers, ...dailyAbsenceIds])]
+        : selectedMembers.filter(id => !dailyAbsenceIds.includes(id));
+
       const ref = doc(db, 'itineraries', editing.id);
       await updateDoc(ref, {
         ...editing,
@@ -231,8 +241,8 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
         isMain: newItem.isMain,
         startTime: Timestamp.fromDate(startDateTime),
         endTime: endDateTime ? Timestamp.fromDate(endDateTime) : null,
-        assignedMemberIds: newItem.isMain ? [] : selectedMembers,
-        excludedMemberIds: newItem.isMain ? selectedMembers : [],
+        assignedMemberIds: newItem.isMain ? [] : finalMembers,
+        excludedMemberIds: newItem.isMain ? finalMembers : [],
         dayIndex: tripDates.indexOf(activeDate),
         vehicleAssignments: newItem.vehicleAssignments || {},
         isMultiVehicle: newItem.isMultiVehicle || false,
@@ -341,16 +351,21 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
                   isGrouped: false,
                   groups: []
                 });
-                // 預設排除 3天及以下 或 本來就在日本 的成員
-                const defaultExcluded = members
-                  .filter(m => (m.tripDays && m.tripDays <= 3) || m.outboundFlight === '日本')
-                  .map(m => m.id);
-                setSelectedMembers(defaultExcluded);
+                // 預設排除 當日缺勤 的成員
+                setSelectedMembers(dailyAbsenceIds);
               }}
               className="flex items-center gap-2 bg-stone-900 text-white px-6 py-2 rounded-full text-sm font-medium hover:bg-stone-800 transition-colors shadow-sm whitespace-nowrap"
             >
               <Plus className="w-4 h-4" />
               新增行程
+            </button>
+
+            <button 
+              onClick={() => setIsAbsenceModalOpen(true)}
+              className="flex items-center gap-2 bg-white border border-stone-200 text-red-500 px-4 py-2 rounded-full text-sm font-bold hover:bg-red-50 transition-colors shadow-sm whitespace-nowrap group"
+            >
+              <UserX className="w-4 h-4" />
+              <span>{dailyAbsenceIds.length > 0 ? `已標記 ${dailyAbsenceIds.length} 位缺席` : '當日缺勤管理'}</span>
             </button>
           </div>
         ) : (
@@ -481,8 +496,8 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
                             {it.type !== 'transit' && (
                               <span className="px-3 py-1 rounded-full bg-stone-100 text-stone-600 border border-stone-200 text-[10px] font-bold">
                                 {(it.isMain 
-                                  ? members.filter(m => !it.excludedMemberIds?.includes(m.id))
-                                  : members.filter(m => it.assignedMemberIds?.includes(m.id))
+                                  ? members.filter(m => !it.excludedMemberIds?.includes(m.id) && !dailyAbsenceIds.includes(m.id))
+                                  : members.filter(m => it.assignedMemberIds?.includes(m.id) && !dailyAbsenceIds.includes(m.id))
                                 ).length} 人
                               </span>
                             )}
@@ -492,22 +507,22 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
                                 {!it.isMultiVehicle ? (
                                   <span className="px-3 py-1 rounded-full bg-stone-100 text-stone-600 border border-stone-200">
                                     {(it.isMain 
-                                      ? members.filter(m => !it.excludedMemberIds?.includes(m.id))
-                                      : members.filter(m => it.assignedMemberIds?.includes(m.id))
+                                      ? members.filter(m => !it.excludedMemberIds?.includes(m.id) && !dailyAbsenceIds.includes(m.id))
+                                      : members.filter(m => it.assignedMemberIds?.includes(m.id) && !dailyAbsenceIds.includes(m.id))
                                     ).length} 人
                                   </span>
                                 ) : (
                                   <>
                                     <span className="px-3 py-1 rounded-full bg-amber-50 text-amber-600 border border-amber-200 shadow-sm">
                                       A車: {(it.isMain 
-                                        ? members.filter(m => !it.excludedMemberIds?.includes(m.id))
-                                        : members.filter(m => it.assignedMemberIds?.includes(m.id))
+                                        ? members.filter(m => !it.excludedMemberIds?.includes(m.id) && !dailyAbsenceIds.includes(m.id))
+                                        : members.filter(m => it.assignedMemberIds?.includes(m.id) && !dailyAbsenceIds.includes(m.id))
                                       ).filter(m => (it.vehicleAssignments?.[m.id] === 'A' || !it.vehicleAssignments?.[m.id])).length} 人
                                     </span>
                                     <span className="px-3 py-1 rounded-full bg-blue-50 text-blue-600 border border-blue-200 shadow-sm">
                                       B車: {(it.isMain 
-                                        ? members.filter(m => !it.excludedMemberIds?.includes(m.id))
-                                        : members.filter(m => it.assignedMemberIds?.includes(m.id))
+                                        ? members.filter(m => !it.excludedMemberIds?.includes(m.id) && !dailyAbsenceIds.includes(m.id))
+                                        : members.filter(m => it.assignedMemberIds?.includes(m.id) && !dailyAbsenceIds.includes(m.id))
                                       ).filter(m => it.vehicleAssignments?.[m.id] === 'B').length} 人
                                     </span>
                                   </>
@@ -597,8 +612,8 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
                                     const assignments = it.groupAssignments || {};
                                     const groupNames = Array.from(new Set(Object.values(assignments))).filter(Boolean);
                                     const participants = it.isMain 
-                                      ? members.filter(m => !it.excludedMemberIds?.includes(m.id))
-                                      : members.filter(m => it.assignedMemberIds?.includes(m.id));
+                                      ? members.filter(m => !it.excludedMemberIds?.includes(m.id) && !dailyAbsenceIds.includes(m.id))
+                                      : members.filter(m => it.assignedMemberIds?.includes(m.id) && !dailyAbsenceIds.includes(m.id));
 
                                     return groupNames.map(gn => (
                                       <div key={gn} className="bg-white/60 p-2 rounded-xl border border-stone-100">
@@ -970,6 +985,51 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
                     />
                   </div>
 
+                  {/* Select by Trip Days */}
+                  <div className="flex flex-wrap gap-2 mb-4 p-3 bg-stone-100/40 rounded-2xl border border-stone-200/50">
+                    <span className="w-full text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1 ml-1">按天數選取 (By Duration)</span>
+                    {[3, 5, 9, 0].map(days => {
+                      const categoryMembers = members.filter(m => {
+                        if (days === 9) return m.tripDays === 9 || m.tripDays === 8;
+                        if (days === 0) return m.tripDays && ![3, 5, 8, 9].includes(m.tripDays);
+                        return m.tripDays === days;
+                      });
+                      
+                      if (categoryMembers.length === 0) return null;
+                      const allSelected = categoryMembers.every(m => selectedMembers.includes(m.id));
+                      const label = days === 0 ? '其他' : `${days}天`;
+                      
+                      return (
+                        <button
+                          key={days}
+                          type="button"
+                          onClick={() => {
+                            const ids = categoryMembers.map(m => m.id);
+                            if (allSelected) {
+                              setSelectedMembers(prev => prev.filter(id => !ids.includes(id)));
+                            } else {
+                              setSelectedMembers(prev => [...new Set([...prev, ...ids])]);
+                            }
+                          }}
+                          className={cn(
+                            "px-3 py-1.5 rounded-xl text-[10px] font-bold border transition-all flex items-center gap-2",
+                            allSelected 
+                              ? (newItem.isMain ? "bg-red-500 text-white border-red-500" : "bg-stone-900 text-white border-stone-900 shadow-sm")
+                              : "bg-white text-stone-500 border-stone-200 hover:border-stone-400"
+                          )}
+                        >
+                          {label}
+                          <span className={cn(
+                            "px-1.5 py-0.5 rounded-full text-[9px]",
+                            allSelected ? "bg-white/20 text-white" : "bg-stone-100 text-stone-400"
+                          )}>
+                            {categoryMembers.length}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
                   {/* Select by Group */}
                   <div className="flex flex-wrap gap-2 mb-4">
                     {groups.map(group => {
@@ -1021,6 +1081,7 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
                             key={m.id}
                             type="button"
                             onClick={() => {
+                              if (dailyAbsenceIds.includes(m.id)) return;
                               if (selectedMembers.includes(m.id)) {
                                 setSelectedMembers(selectedMembers.filter(id => id !== m.id));
                               } else {
@@ -1028,16 +1089,48 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
                               }
                             }}
                             className={cn(
-                              "flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium transition-all border",
-                              selectedMembers.includes(m.id)
-                                ? (newItem.isMain ? "bg-red-500 text-white border-red-500" : "bg-stone-900 text-white border-stone-900")
-                                : "bg-white text-stone-600 border-stone-200 hover:border-stone-400"
+                              "flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-medium transition-all border relative overflow-hidden group/mbtn",
+                              dailyAbsenceIds.includes(m.id)
+                                ? "bg-stone-50 text-stone-300 border-stone-100 cursor-not-allowed opacity-60"
+                                : selectedMembers.includes(m.id)
+                                  ? (newItem.isMain ? "bg-red-500 text-white border-red-500 shadow-md ring-2 ring-red-500/20" : "bg-stone-900 text-white border-stone-900 shadow-md ring-2 ring-stone-900/20")
+                                  : "bg-white text-stone-600 border-stone-200 hover:border-stone-400 hover:scale-[1.02] hover:shadow-sm"
                             )}
+                            disabled={dailyAbsenceIds.includes(m.id)}
                             whileHover={{ scale: 1.02 }}
                             whileTap={{ scale: 0.98 }}
                           >
-                            {selectedMembers.includes(m.id) && (newItem.isMain ? <Plus className="w-3 h-3 rotate-45" /> : <Check className="w-3 h-3" />)}
-                            {m.name}
+                            <div className="flex items-center gap-2">
+                              <div className={cn(
+                                "w-1.5 h-1.5 rounded-full",
+                                m.tripDays ? (m.tripDays >= 8 ? "bg-purple-400" : "bg-teal-400") : "bg-stone-300"
+                              )} />
+                              <span className={cn(
+                                "transition-colors",
+                                dailyAbsenceIds.includes(m.id) 
+                                  ? "text-stone-300 line-through" 
+                                  : (selectedMembers.includes(m.id) ? "text-white" : (m.tripDays ? (m.tripDays >= 8 ? "text-purple-700" : "text-teal-700") : "text-stone-600"))
+                              )}>
+                                {m.name}
+                              </span>
+                            </div>
+                            
+                            {dailyAbsenceIds.includes(m.id) ? (
+                              <span className="text-[8px] font-black uppercase tracking-tighter text-red-300/60 flex items-center gap-0.5">
+                                <UserX className="w-2.5 h-2.5" /> 當日缺席
+                              </span>
+                            ) : selectedMembers.includes(m.id) ? (
+                              <div className="bg-white/20 p-0.5 rounded-full">
+                                {newItem.isMain ? <Plus className="w-2.5 h-2.5 rotate-45" /> : <Check className="w-2.5 h-2.5" />}
+                              </div>
+                            ) : m.tripDays && (
+                              <span className={cn(
+                                "text-[9px] font-bold px-1 rounded",
+                                m.tripDays >= 8 ? "bg-purple-50 text-purple-400" : "bg-teal-50 text-teal-400"
+                              )}>
+                                {m.tripDays}D
+                              </span>
+                            )}
                           </motion.button>
                         ))}
                     </AnimatePresence>
@@ -1436,6 +1529,14 @@ export default function ItineraryPlanner({ itineraries, members, groups }: Itine
           </div>
         </div>
       )}
+
+      <DailyAbsenceManager 
+        isOpen={isAbsenceModalOpen}
+        onClose={() => setIsAbsenceModalOpen(false)}
+        date={activeDate}
+        members={members}
+        tripSettings={tripSettings}
+      />
     </div>
   );
 }

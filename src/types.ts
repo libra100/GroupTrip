@@ -50,3 +50,13 @@ export interface RollCall {
   timestamp: any; // Firestore Timestamp
   statusMap: Record<string, 'present' | 'absent' | 'divergent'>;
 }
+
+export interface TripSettings {
+  startDate: string;
+  endDate: string;
+  dailyAbsences?: Record<string, string[]>; // date string -> member IDs
+}
+
+export interface DailyAbsence {
+  memberIds: string[];
+}

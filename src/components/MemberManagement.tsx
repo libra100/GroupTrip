@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Member, Group } from '../types';
+import { Member, Group, Itinerary, TripSettings } from '../types';
 import { 
   Plus, 
   Upload, 
@@ -13,7 +13,11 @@ import {
   X,
   Check,
   Users,
-  Crown
+  Crown,
+  Calendar,
+  Square,
+  CheckSquare,
+  Plane
 } from 'lucide-react';
 import { 
   collection, 
@@ -26,13 +30,16 @@ import {
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import * as XLSX from 'xlsx';
 import { cn } from '../lib/utils';
+import PersonalItineraryModal from './PersonalItineraryModal';
 
 interface MemberManagementProps {
   members: Member[];
   groups: Group[];
+  itineraries: Itinerary[];
+  tripSettings: TripSettings | null;
 }
 
-export default function MemberManagement({ members, groups }: MemberManagementProps) {
+export default function MemberManagement({ members, groups, itineraries, tripSettings }: MemberManagementProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddingMember, setIsAddingMember] = useState(false);
   const [editingMember, setEditingMember] = useState<Member | null>(null);
@@ -40,6 +47,9 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
   const [editingGroup, setEditingGroup] = useState<Group | null>(null);
   const [newGroupName, setNewGroupName] = useState('');
   const [selectedGroupId, setSelectedGroupId] = useState<string>('all');
+  const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+  const [viewingItineraryMember, setViewingItineraryMember] = useState<Member | null>(null);
+  const [isFlightExpanded, setIsFlightExpanded] = useState(false);
 
   const [newMember, setNewMember] = useState<Partial<Member>>({
     name: '',
@@ -56,13 +66,34 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
     tripDays: undefined
   });
 
+  const processTagsForTripDays = (tags: string[], currentTripDays?: number) => {
+    // Match digits followed by '天', 'D', or 'd'
+    const tripDayTag = tags.find(t => /\d+[天dD]$/i.test(t.trim()));
+    if (!tripDayTag) return { tags, tripDays: currentTripDays };
+
+    const match = tripDayTag.match(/\d+/);
+    if (!match) return { tags, tripDays: currentTripDays };
+
+    const extractedDays = parseInt(match[0]);
+    if (isNaN(extractedDays)) return { tags, tripDays: currentTripDays };
+
+    return {
+      tags: tags.filter(t => t !== tripDayTag),
+      tripDays: extractedDays
+    };
+  };
+
   const handleAddMember = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMember.name) return;
 
     try {
+      const { tags: processedTags, tripDays: processedDays } = processTagsForTripDays(newMember.tags || [], newMember.tripDays);
+
       const docRef = await addDoc(collection(db, 'members'), {
         ...newMember,
+        tags: processedTags,
+        tripDays: processedDays,
         id: Date.now().toString(), // Temporary ID, Firestore will generate its own
       });
       await updateDoc(docRef, { id: docRef.id });
@@ -78,8 +109,13 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
     if (!editingMember || !editingMember.name) return;
 
     try {
+      const { tags: processedTags, tripDays: processedDays } = processTagsForTripDays(editingMember.tags || [], editingMember.tripDays);
       const memberRef = doc(db, 'members', editingMember.id);
-      await updateDoc(memberRef, { ...editingMember });
+      await updateDoc(memberRef, { 
+        ...editingMember,
+        tags: processedTags,
+        tripDays: processedDays
+      });
       setEditingMember(null);
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `members/${editingMember.id}`);
@@ -87,11 +123,45 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
   };
 
   const handleDeleteMember = async (id: string) => {
+    if (!confirm("確定要刪除此成員嗎？")) return;
     try {
       await deleteDoc(doc(db, 'members', id));
+      setSelectedMemberIds(prev => prev.filter(mid => mid !== id));
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `members/${id}`);
     }
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedMemberIds.length === 0) return;
+    if (!confirm(`確定要刪除選中的 ${selectedMemberIds.length} 位成員嗎？`)) return;
+
+    try {
+      const batch = writeBatch(db);
+      selectedMemberIds.forEach(id => {
+        batch.delete(doc(db, 'members', id));
+      });
+      await batch.commit();
+      setSelectedMemberIds([]);
+      alert(`成功刪除 ${selectedMemberIds.length} 位成員。`);
+    } catch (error) {
+      console.error("Batch delete failed:", error);
+      alert("刪除失敗，請確認資料庫權限。");
+    }
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedMemberIds.length === filteredMembers.length) {
+      setSelectedMemberIds([]);
+    } else {
+      setSelectedMemberIds(filteredMembers.map(m => m.id));
+    }
+  };
+
+  const toggleSelectMember = (id: string) => {
+    setSelectedMemberIds(prev => 
+      prev.includes(id) ? prev.filter(mid => mid !== id) : [...prev, id]
+    );
   };
 
   const handleAddGroup = async (e: React.FormEvent) => {
@@ -171,6 +241,11 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
         // Skip completely empty rows
         if (!name) return;
 
+        const rawTags = typeof tags === 'string' && tags ? tags.split(',').map(t => t.trim()).filter(Boolean) : [];
+        const rawDays = Number(row['TripDays'] || row['天數'] || row['行程天數']) || undefined;
+        
+        const { tags: processedTags, tripDays: processedDays } = processTagsForTripDays(rawTags, rawDays);
+
         const newDocRef = doc(collection(db, 'members'));
         batch.set(newDocRef, {
           id: newDocRef.id,
@@ -178,14 +253,14 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
           dietaryHabits: dietary,
           passportInfo: passport,
           groupId: group,
-          tags: typeof tags === 'string' && tags ? tags.split(',').map(t => t.trim()).filter(Boolean) : [],
+          tags: processedTags,
           outboundFlight,
           outboundTime,
           returnFlight,
           returnTime,
           isLeader: row['IsLeader'] === 'true' || row['組長'] === '是' || false,
           gender: row['Gender'] || row['性別'] || row['男女'] || '',
-          tripDays: Number(row['TripDays'] || row['天數'] || row['行程天數']) || undefined
+          tripDays: processedDays
         });
         importedCount++;
       });
@@ -232,30 +307,15 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
           <p className="text-stone-500">管理目前共 {members.length} 位參與團員。</p>
         </div>
         <div className="flex items-center gap-3">
-          <button 
-            onClick={async () => {
-              try {
-                const emptyMembers = members.filter(m => !m.name || m.name.trim() === '');
-                if (emptyMembers.length === 0) {
-                  alert("目前沒有需要清除的空白名單！");
-                  return;
-                }
-                const batch = writeBatch(db);
-                emptyMembers.forEach(m => {
-                  if (m.id) batch.delete(doc(db, 'members', m.id));
-                });
-                await batch.commit();
-                alert(`成功清除了 ${emptyMembers.length} 筆空白資料！`);
-              } catch(e) {
-                console.error(e);
-                alert("刪除失敗，請確認資料庫權限或網路連線。");
-              }
-            }}
-            className="flex items-center gap-2 bg-red-50 text-red-600 border border-red-200 px-4 py-2 rounded-full text-sm font-medium hover:bg-red-100 transition-colors shadow-sm"
-          >
-            <Trash2 className="w-4 h-4" />
-            清除空白
-          </button>
+          {selectedMemberIds.length > 0 && (
+            <button 
+              onClick={handleDeleteSelected}
+              className="flex items-center gap-2 bg-red-50 text-red-600 border border-red-200 px-4 py-2 rounded-full text-sm font-bold hover:bg-red-100 transition-all shadow-sm animate-in fade-in slide-in-from-right-4"
+            >
+              <Trash2 className="w-4 h-4" />
+              刪除選中 ({selectedMemberIds.length})
+            </button>
+          )}
           <button 
             onClick={() => setIsManagingGroups(true)}
             className="flex items-center gap-2 bg-white border border-stone-200 px-4 py-2 rounded-full text-sm font-medium hover:bg-stone-50 transition-colors shadow-sm"
@@ -274,50 +334,6 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
           >
             <UserPlus className="w-4 h-4" />
             新增團員
-          </button>
-          <button 
-            onClick={async () => {
-              if (!confirm("確定要將標籤中的『天數』同步到欄位嗎？\n(例如：9天 -> 9)")) return;
-              const batch = writeBatch(db);
-              let syncCount = 0;
-              members.forEach(m => {
-                const updates: any = {};
-                
-                // Sync Trip Days
-                if (!m.tripDays) {
-                  const dayTag = (Array.isArray(m.tags) ? m.tags : []).find(t => 
-                    t.includes('天') || /^[0-9]+[dD]$/.test(t.trim())
-                  );
-                  if (dayTag) {
-                    const match = dayTag.match(/\d+/);
-                    if (match) {
-                      const days = parseInt(match[0]);
-                      if (!isNaN(days)) updates.tripDays = days;
-                    }
-                  }
-                }
-
-                if (Object.keys(updates).length > 0) {
-                  batch.update(doc(db, 'members', m.id), updates);
-                  syncCount++;
-                }
-              });
-
-              if (syncCount > 0) {
-                try {
-                  await batch.commit();
-                  alert(`成功同步了 ${syncCount} 位成員的資料！`);
-                } catch (err) {
-                  console.error("Sync failed:", err);
-                  alert("同步失敗，請查看控制台或稍後再試。");
-                }
-              } else {
-                alert("找不到可同步的標籤或資料已是最新。");
-              }
-            }}
-            className="flex items-center gap-2 bg-amber-50 text-amber-600 border border-amber-200 px-4 py-2 rounded-full text-sm font-medium hover:bg-amber-100 transition-colors shadow-sm"
-          >
-            同步標籤天數
           </button>
         </div>
       </div>
@@ -388,6 +404,14 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
           <table className="w-full text-left">
             <thead>
               <tr className="bg-stone-50 border-b border-stone-200">
+                <th className="px-6 py-4 w-10">
+                  <button onClick={toggleSelectAll} className="p-1 text-stone-400 hover:text-stone-900 transition-colors">
+                    {selectedMemberIds.length === filteredMembers.length && filteredMembers.length > 0 
+                      ? <CheckSquare className="w-5 h-5 text-stone-900" /> 
+                      : <Square className="w-5 h-5" />
+                    }
+                  </button>
+                </th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500 whitespace-nowrap min-w-[120px] w-[140px]">姓名</th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500 whitespace-nowrap">組別</th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500 whitespace-nowrap">天數</th>
@@ -398,7 +422,21 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
             </thead>
             <tbody className="divide-y divide-stone-100">
               {filteredMembers.map((member) => (
-                <tr key={member.id} className="hover:bg-stone-50 transition-colors group whitespace-nowrap">
+                <tr key={member.id} className={cn(
+                  "hover:bg-stone-50 transition-colors group whitespace-nowrap",
+                  selectedMemberIds.includes(member.id) && "bg-stone-50/80"
+                )}>
+                  <td className="px-6 py-4">
+                    <button 
+                      onClick={() => toggleSelectMember(member.id)}
+                      className="p-1 text-stone-400 hover:text-stone-900 transition-colors"
+                    >
+                      {selectedMemberIds.includes(member.id) 
+                        ? <CheckSquare className="w-5 h-5 text-stone-900 shadow-sm" /> 
+                        : <Square className="w-5 h-5 opacity-40 group-hover:opacity-100" />
+                      }
+                    </button>
+                  </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-full bg-stone-100 flex items-center justify-center text-xs font-bold text-stone-600">
@@ -480,16 +518,19 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button 
-                        onClick={() => setEditingMember(member)}
-                        className="p-2 text-stone-400 hover:text-stone-900 hover:bg-stone-100 rounded-lg transition-colors"
+                        onClick={() => setViewingItineraryMember(member)}
+                        className="p-2 text-stone-400 hover:text-stone-900 hover:bg-stone-100 rounded-lg transition-colors flex items-center gap-1.5"
+                        title="查看個人行程"
                       >
-                        <Edit2 className="w-4 h-4" />
+                        <Calendar className="w-4 h-4" />
+                        <span className="text-[10px] font-bold">個人行程</span>
                       </button>
                       <button 
-                        onClick={() => handleDeleteMember(member.id)}
-                        className="p-2 text-stone-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        onClick={() => setEditingMember(member)}
+                        className="p-2 text-stone-400 hover:text-stone-900 hover:bg-stone-100 rounded-lg transition-colors"
+                        title="編輯成員"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Edit2 className="w-4 h-4" />
                       </button>
                     </div>
                   </td>
@@ -511,9 +552,17 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
       {(isAddingMember || editingMember) && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm">
           <div className="bg-white w-full max-w-lg rounded-3xl p-8 shadow-2xl">
-            <h3 className="text-2xl font-serif mb-6">
-              {isAddingMember ? '新增成員' : '編輯成員'}
-            </h3>
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-2xl font-serif">
+                {isAddingMember ? '新增成員' : '編輯成員'}
+              </h3>
+              <button 
+                onClick={() => { setIsAddingMember(false); setEditingMember(null); }}
+                className="p-2 hover:bg-stone-100 rounded-full transition-colors text-stone-400"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
             <form onSubmit={isAddingMember ? handleAddMember : handleUpdateMember} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2">
@@ -617,12 +666,12 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
                     );
                   })()}
                 </div>
-                <div className="col-span-2">
-                  <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-1">飲食偏好 (Dietary Habits)</label>
+                <div className="col-span-1">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-1">飲食偏好 (Dietary)</label>
                   <select 
                     value={isAddingMember ? newMember.dietaryHabits : editingMember?.dietaryHabits}
                     onChange={(e) => isAddingMember ? setNewMember({...newMember, dietaryHabits: e.target.value}) : setEditingMember({...editingMember!, dietaryHabits: e.target.value})}
-                    className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900/5"
+                    className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#00F3FF]/50"
                   >
                     <option value="">一般 (葷食)</option>
                     <option value="素食 (Vegetarian)">素食 (Vegetarian)</option>
@@ -634,13 +683,13 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
                     <option value="其他 (Other)">其他 (Other)</option>
                   </select>
                 </div>
-                <div className="col-span-2">
-                  <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-1">護照號碼 (Passport Info)</label>
+                <div className="col-span-1">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-1">護照號碼 (Passport)</label>
                   <input 
                     type="text" 
                     value={isAddingMember ? newMember.passportInfo : editingMember?.passportInfo}
                     onChange={(e) => isAddingMember ? setNewMember({...newMember, passportInfo: e.target.value}) : setEditingMember({...editingMember!, passportInfo: e.target.value})}
-                    className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900/5"
+                    className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#00F3FF]/50"
                   />
                 </div>
                 <div className="col-span-2">
@@ -650,61 +699,107 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
                     placeholder="例如: 工作人員, VIP, 第一梯次"
                     value={isAddingMember ? (newMember.tags || []).join(', ') : (editingMember?.tags || []).join(', ')}
                     onChange={(e) => {
-                      const tagsArray = e.target.value.split(',').map(t => t.trim()).filter(t => t !== '');
+                      const value = e.target.value;
+                      const tagsArray = value.split(',').map(t => t.trim()).filter(Boolean);
+                      
+                      // Process only if a comma was just added or it's a bulk paste
+                      const { tags: processedTags, tripDays: processedDays } = processTagsForTripDays(
+                        tagsArray, 
+                        isAddingMember ? newMember.tripDays : editingMember?.tripDays
+                      );
+
                       if (isAddingMember) {
-                        setNewMember({...newMember, tags: tagsArray});
+                        setNewMember({
+                          ...newMember, 
+                          tags: processedTags,
+                          tripDays: processedDays
+                        });
                       } else {
-                        setEditingMember({...editingMember!, tags: tagsArray});
+                        setEditingMember({
+                          ...editingMember!, 
+                          tags: processedTags,
+                          tripDays: processedDays
+                        });
                       }
                     }}
                     className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900/5 text-sm"
                   />
                 </div>
                 
-                <div className="col-span-2 pt-4 mt-2 border-t border-stone-100">
-                  <h4 className="text-sm font-bold text-stone-900 mb-4 flex items-center gap-2">航班資訊 (Flight Info) <span className="text-xs font-normal text-stone-400 bg-stone-100 px-2 py-0.5 rounded-full">選填</span></h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-400 mb-1">去程航班號碼 (Outbound)</label>
-                      <input 
-                        type="text" 
-                        placeholder="e.g. BR192"
-                        value={isAddingMember ? newMember.outboundFlight : editingMember?.outboundFlight}
-                        onChange={(e) => isAddingMember ? setNewMember({...newMember, outboundFlight: e.target.value}) : setEditingMember({...editingMember!, outboundFlight: e.target.value})}
-                        className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900/5 text-sm"
-                      />
+                <div className="col-span-2 space-y-2">
+                  <button 
+                    type="button"
+                    onClick={() => setIsFlightExpanded(!isFlightExpanded)}
+                    className={cn(
+                      "w-full flex items-center justify-between p-4 bg-stone-50 border transition-all duration-200 ease-out font-bold text-stone-900 group rounded-2xl",
+                      isFlightExpanded 
+                        ? "border-[#00F3FF] ring-2 ring-[#00F3FF]/10 brightness-110" 
+                        : "border-stone-200 hover:scale-[1.02] hover:shadow-[0_5px_15px_-5px_rgba(0,0,0,0.1)] active:brightness-110 active:border-[#00F3FF]"
+                    )}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={cn(
+                        "p-1.5 rounded-lg transition-colors",
+                        isFlightExpanded ? "bg-stone-900 text-white" : "bg-stone-200 text-stone-600 group-hover:bg-stone-900 group-hover:text-white"
+                      )}>
+                        <Plane className="w-3.5 h-3.5" />
+                      </div>
+                      <span className="text-sm">航班資訊 (Flight Info)</span>
                     </div>
-                    <div>
-                      <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-400 mb-1">去程時間 (Outbound Time)</label>
-                      <input 
-                        type="text" 
-                        placeholder="例如: 2026/05/01 07:30"
-                        value={isAddingMember ? newMember.outboundTime : editingMember?.outboundTime}
-                        onChange={(e) => isAddingMember ? setNewMember({...newMember, outboundTime: e.target.value}) : setEditingMember({...editingMember!, outboundTime: e.target.value})}
-                        className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900/5 text-sm"
-                      />
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-medium text-stone-400 bg-white border border-stone-200 px-2 py-0.5 rounded-full">
+                        {isFlightExpanded ? '點擊收合' : '點擊展開'}
+                      </span>
+                      <MoreVertical className={cn("w-4 h-4 text-stone-400 transition-transform", isFlightExpanded && "rotate-90")} />
                     </div>
-                    <div>
-                      <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-400 mb-1">回程航班號碼 (Return)</label>
-                      <input 
-                        type="text" 
-                        placeholder="e.g. BR191"
-                        value={isAddingMember ? newMember.returnFlight : editingMember?.returnFlight}
-                        onChange={(e) => isAddingMember ? setNewMember({...newMember, returnFlight: e.target.value}) : setEditingMember({...editingMember!, returnFlight: e.target.value})}
-                        className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900/5 text-sm"
-                      />
+                  </button>
+
+                  {isFlightExpanded && (
+                    <div className="p-5 border border-stone-200 rounded-2xl bg-white space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <label className="block text-[10px] font-black uppercase tracking-widest text-stone-400">去程航班 (Outbound)</label>
+                          <input 
+                            type="text" 
+                            placeholder="e.g. BR192"
+                            value={isAddingMember ? newMember.outboundFlight : editingMember?.outboundFlight}
+                            onChange={(e) => isAddingMember ? setNewMember({...newMember, outboundFlight: e.target.value}) : setEditingMember({...editingMember!, outboundFlight: e.target.value})}
+                            className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#00F3FF]/50 text-sm"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-[10px] font-black uppercase tracking-widest text-stone-400">去程時間 (Time)</label>
+                          <input 
+                            type="text" 
+                            placeholder="例如: 05/01 07:30"
+                            value={isAddingMember ? newMember.outboundTime : editingMember?.outboundTime}
+                            onChange={(e) => isAddingMember ? setNewMember({...newMember, outboundTime: e.target.value}) : setEditingMember({...editingMember!, outboundTime: e.target.value})}
+                            className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#00F3FF]/50 text-sm"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-[10px] font-black uppercase tracking-widest text-stone-400">回程航班 (Return)</label>
+                          <input 
+                            type="text" 
+                            placeholder="e.g. BR191"
+                            value={isAddingMember ? newMember.returnFlight : editingMember?.returnFlight}
+                            onChange={(e) => isAddingMember ? setNewMember({...newMember, returnFlight: e.target.value}) : setEditingMember({...editingMember!, returnFlight: e.target.value})}
+                            className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#00F3FF]/50 text-sm"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-[10px] font-black uppercase tracking-widest text-stone-400">回程時間 (Time)</label>
+                          <input 
+                            type="text" 
+                            placeholder="例如: 05/05 14:20"
+                            value={isAddingMember ? newMember.returnTime : editingMember?.returnTime}
+                            onChange={(e) => isAddingMember ? setNewMember({...newMember, returnTime: e.target.value}) : setEditingMember({...editingMember!, returnTime: e.target.value})}
+                            className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#00F3FF]/50 text-sm"
+                          />
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-400 mb-1">回程時間 (Return Time)</label>
-                      <input 
-                        type="text" 
-                        placeholder="例如: 2026/05/05 14:20"
-                        value={isAddingMember ? newMember.returnTime : editingMember?.returnTime}
-                        onChange={(e) => isAddingMember ? setNewMember({...newMember, returnTime: e.target.value}) : setEditingMember({...editingMember!, returnTime: e.target.value})}
-                        className="w-full px-4 py-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-stone-900/5 text-sm"
-                      />
-                    </div>
-                  </div>
+                  )}
                 </div>
               </div>
               <div className="flex gap-3 pt-4">
@@ -800,6 +895,15 @@ export default function MemberManagement({ members, groups }: MemberManagementPr
             </div>
           </div>
         </div>
+      )}
+
+      {viewingItineraryMember && (
+        <PersonalItineraryModal 
+          member={viewingItineraryMember}
+          itineraries={itineraries}
+          tripSettings={tripSettings}
+          onClose={() => setViewingItineraryMember(null)}
+        />
       )}
     </div>
   );

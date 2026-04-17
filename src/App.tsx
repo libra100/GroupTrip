@@ -8,7 +8,7 @@ import {
   getDocFromServer
 } from 'firebase/firestore';
 import { db } from './firebase';
-import { Member, Group, Itinerary, RollCall } from './types';
+import { Member, Group, Itinerary, RollCall, TripSettings, DailyAbsence } from './types';
 import { 
   Users, 
   Calendar, 
@@ -35,20 +35,7 @@ export default function App() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [itineraries, setItineraries] = useState<Itinerary[]>([]);
   const [rollCalls, setRollCalls] = useState<RollCall[]>([]);
-
-  // Test connection to Firestore
-  useEffect(() => {
-    const testConnection = async () => {
-      try {
-        await getDocFromServer(doc(db, 'test', 'connection'));
-      } catch (error) {
-        if (error instanceof Error && error.message.includes('the client is offline')) {
-          console.error("Please check your Firebase configuration.");
-        }
-      }
-    };
-    testConnection();
-  }, []);
+  const [tripSettings, setTripSettings] = useState<TripSettings | null>(null);
 
   // Real-time data sync
   useEffect(() => {
@@ -68,14 +55,20 @@ export default function App() {
       setRollCalls(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as RollCall)));
     });
 
+    const unsubSettings = onSnapshot(doc(db, 'settings', 'tripSettings'), (docSnap) => {
+      if (docSnap.exists()) {
+        setTripSettings(docSnap.data() as TripSettings);
+      }
+    });
+
     return () => {
       unsubMembers();
       unsubGroups();
       unsubItineraries();
       unsubRollCalls();
+      unsubSettings();
     };
   }, []);
-
   const navItems = [
     { id: 'dashboard', label: '總覽儀表板', icon: LayoutDashboard },
     { id: 'members', label: '名單管理', icon: Users },
@@ -143,6 +136,8 @@ export default function App() {
             <MemberManagement 
               members={members} 
               groups={groups} 
+              itineraries={itineraries}
+              tripSettings={tripSettings}
             />
           )}
           {currentView === 'flights' && (
@@ -156,6 +151,7 @@ export default function App() {
               itineraries={itineraries} 
               members={members} 
               groups={groups}
+              tripSettings={tripSettings}
             />
           )}
           {currentView === 'rollcall' && (
@@ -163,6 +159,7 @@ export default function App() {
               rollCalls={rollCalls} 
               itineraries={itineraries} 
               members={members} 
+              tripSettings={tripSettings}
             />
           )}
         </div>

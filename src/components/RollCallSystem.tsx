@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { RollCall, Itinerary, Member } from '../types';
+import { RollCall, Itinerary, Member, TripSettings, DailyAbsence } from '../types';
 import { 
   Users,
   Search,
@@ -19,6 +19,7 @@ import { collection, addDoc, updateDoc, doc, Timestamp, setDoc, onSnapshot } fro
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { format, parseISO, addDays, differenceInDays } from 'date-fns';
 import { cn } from '../lib/utils';
+import DailyAbsenceManager from './DailyAbsenceManager';
 
 const safeFormat = (date: Date | null | number | undefined, formatStr: string) => {
   if (!date) return '';
@@ -27,36 +28,31 @@ const safeFormat = (date: Date | null | number | undefined, formatStr: string) =
   return format(d, formatStr);
 };
 
-interface TripSettings {
-  startDate: string;
-  endDate: string;
-}
-
 interface RollCallSystemProps {
   rollCalls: RollCall[];
   itineraries: Itinerary[];
   members: Member[];
+  tripSettings: TripSettings | null;
 }
 
-export default function RollCallSystem({ rollCalls, itineraries, members }: RollCallSystemProps) {
+export default function RollCallSystem({ 
+  rollCalls, 
+  itineraries, 
+  members,
+  tripSettings
+}: RollCallSystemProps) {
   const [selectedItineraryId, setSelectedItineraryId] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
   const [copySuccess, setCopySuccess] = useState(false);
-  const [tripSettings, setTripSettings] = useState<TripSettings | null>(null);
   const [activeDate, setActiveDate] = useState<string>(safeFormat(new Date(), 'yyyy-MM-dd'));
   const [isItineraryListOpen, setIsItineraryListOpen] = useState(false);
+  const [isAbsenceModalOpen, setIsAbsenceModalOpen] = useState(false);
 
-  useEffect(() => {
-    const unsub = onSnapshot(doc(db, 'settings', 'tripSettings'), (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data() as TripSettings;
-        setTripSettings(data);
-      } else {
-        setTripSettings(null);
-      }
-    });
-    return () => unsub();
-  }, []);
+  // Daily absences are now derived from tripSettings
+  const dailyAbsenceIds = useMemo(() => {
+    if (!activeDate || !tripSettings?.dailyAbsences) return [];
+    return tripSettings.dailyAbsences[activeDate] || [];
+  }, [activeDate, tripSettings]);
 
   const tripDates = useMemo(() => {
     if (!tripSettings?.startDate || !tripSettings?.endDate) return [];
@@ -151,19 +147,10 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
         : (typeof m.tags === 'string' && (m.tags as string).toLowerCase().includes(searchTerm.toLowerCase()))
       );
     
-    // Day 6+ (dayIndex >= 5) Main Itinerary Filter for 5-Day members
-    // Default is 5-Day if no 3-Day or 9-Day tag exists
-    const is3Day = m.tripDays === 3;
-    const is5Day = m.tripDays === 5;
-    const is9Day = m.tripDays === 9 || m.tripDays === 8;
-    
-    const isDay6Plus = currentItinerary?.dayIndex !== undefined && currentItinerary.dayIndex >= 5;
-    const isDay4Plus = currentItinerary?.dayIndex !== undefined && currentItinerary.dayIndex >= 3;
-    
+    // Global Daily Absence Filter
+    if (dailyAbsenceIds.includes(m.id)) return false;
+
     if (currentItinerary?.isMain) {
-      if (is5Day && isDay6Plus) return false;
-      if (is3Day && isDay4Plus) return false;
-      
       // Filter out excluded members
       if (currentItinerary.excludedMemberIds?.includes(m.id)) return false;
     }
@@ -222,18 +209,8 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
     
     // For Main itineraries, count members who should be there on that day
     return members.filter(m => {
-      const is3Day = m.tripDays === 3;
-      const is5Day = m.tripDays === 5;
-      const is9Day = m.tripDays === 9 || m.tripDays === 8;
-      
-      const dayIdx = it.dayIndex;
-      if (dayIdx === undefined) return true;
-      
-      const isDay6Plus = dayIdx >= 5;
-      const isDay4Plus = dayIdx >= 3;
-      
-      if (is5Day && isDay6Plus) return false;
-      if (is3Day && isDay4Plus) return false;
+      // Global Daily Absence Filter
+      if (dailyAbsenceIds.includes(m.id)) return false;
 
       // Filter out excluded members for Main itineraries
       if (it.excludedMemberIds?.includes(m.id)) return false;
@@ -425,6 +402,13 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
                     >
                       {copySuccess ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                       <span>{copySuccess ? '已複製' : '複製名單'}</span>
+                    </button>
+                    <button 
+                      onClick={() => setIsAbsenceModalOpen(true)}
+                      className="w-full sm:w-auto px-6 py-4 bg-white border border-stone-200 rounded-2xl text-red-500 flex items-center justify-center gap-2 transition-all duration-200 ease-out shrink-0 font-bold text-sm shadow-sm hover:scale-[1.02] hover:bg-red-50/50 hover:border-red-100"
+                    >
+                      <UserX className="w-4 h-4" />
+                      <span>{dailyAbsenceIds.length > 0 ? `已註記 ${dailyAbsenceIds.length} 位缺席` : '當日缺勤管理'}</span>
                     </button>
                   </div>
 
@@ -637,6 +621,14 @@ export default function RollCallSystem({ rollCalls, itineraries, members }: Roll
           <p className="text-stone-500 max-w-sm mx-auto">請先到「行程規劃」頁面設定旅遊起始與結束日期。</p>
         </div>
       )}
+
+      <DailyAbsenceManager 
+        isOpen={isAbsenceModalOpen}
+        onClose={() => setIsAbsenceModalOpen(false)}
+        date={activeDate}
+        members={members}
+        tripSettings={tripSettings}
+      />
     </div>
   );
 }
