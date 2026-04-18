@@ -4,7 +4,7 @@ import { Itinerary, Member, Group, ItineraryType, TripSettings, DailyAbsence } f
 import { format, parseISO, addDays, differenceInDays } from 'date-fns';
 import { cn } from '../lib/utils';
 import { doc, onSnapshot, Timestamp, setDoc, addDoc, updateDoc, deleteDoc, collection } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db, handleFirestoreError, OperationType } from '../firebase';
 import DailyAbsenceManager from './DailyAbsenceManager';
 import { 
   Plus, 
@@ -575,8 +575,8 @@ export default function ItineraryPlanner({
                                   const assignments = it.groupAssignments || {};
                                   const groupNames = Array.from(new Set(Object.values(assignments))).filter(Boolean);
                                   const participants = it.isMain 
-                                    ? members.filter(m => !it.excludedMemberIds?.includes(m.id))
-                                    : members.filter(m => it.assignedMemberIds?.includes(m.id));
+                                    ? members.filter(m => !it.excludedMemberIds?.includes(m.id) && !dailyAbsenceIds.includes(m.id))
+                                    : members.filter(m => it.assignedMemberIds?.includes(m.id) && !dailyAbsenceIds.includes(m.id));
 
                                   return groupNames.map(gn => (
                                     <div key={gn} className="flex flex-col gap-1 min-w-[80px]">
@@ -695,8 +695,8 @@ export default function ItineraryPlanner({
                                 {!it.isMultiVehicle && (
                                   <span className="bg-stone-200 text-stone-600 px-2 py-0.5 rounded-full text-[10px]">
                                     共 {(it.isMain 
-                                      ? members.filter(m => !it.excludedMemberIds?.includes(m.id))
-                                      : members.filter(m => it.assignedMemberIds?.includes(m.id))
+                                      ? members.filter(m => !it.excludedMemberIds?.includes(m.id) && !dailyAbsenceIds.includes(m.id))
+                                      : members.filter(m => it.assignedMemberIds?.includes(m.id) && !dailyAbsenceIds.includes(m.id))
                                     ).length} 人
                                   </span>
                                 )}
@@ -710,8 +710,8 @@ export default function ItineraryPlanner({
                                     </div>
                                     <div className="flex flex-wrap gap-1">
                                       {(it.isMain 
-                                        ? members.filter(m => !it.excludedMemberIds?.includes(m.id))
-                                        : members.filter(m => it.assignedMemberIds?.includes(m.id))
+                                        ? members.filter(m => !it.excludedMemberIds?.includes(m.id) && !dailyAbsenceIds.includes(m.id))
+                                        : members.filter(m => it.assignedMemberIds?.includes(m.id) && !dailyAbsenceIds.includes(m.id))
                                       ).filter(m => {
                                         if (it.vehicleAssignments && it.vehicleAssignments[m.id]) {
                                           return it.vehicleAssignments[m.id] === 'A';
@@ -731,8 +731,8 @@ export default function ItineraryPlanner({
                                     </div>
                                     <div className="flex flex-wrap gap-1">
                                       {(it.isMain 
-                                        ? members.filter(m => !it.excludedMemberIds?.includes(m.id))
-                                        : members.filter(m => it.assignedMemberIds?.includes(m.id))
+                                        ? members.filter(m => !it.excludedMemberIds?.includes(m.id) && !dailyAbsenceIds.includes(m.id))
+                                        : members.filter(m => it.assignedMemberIds?.includes(m.id) && !dailyAbsenceIds.includes(m.id))
                                       ).filter(m => {
                                         if (it.vehicleAssignments && it.vehicleAssignments[m.id]) {
                                           return it.vehicleAssignments[m.id] === 'B';
@@ -749,8 +749,8 @@ export default function ItineraryPlanner({
                               ) : (
                                 <div className="flex flex-wrap gap-1">
                                   {(it.isMain 
-                                    ? members.filter(m => !it.excludedMemberIds?.includes(m.id))
-                                    : members.filter(m => it.assignedMemberIds?.includes(m.id))
+                                    ? members.filter(m => !it.excludedMemberIds?.includes(m.id) && !dailyAbsenceIds.includes(m.id))
+                                    : members.filter(m => it.assignedMemberIds?.includes(m.id) && !dailyAbsenceIds.includes(m.id))
                                   ).map(m => (
                                     <span key={m.id} className="px-2 py-0.5 bg-white border border-stone-200 rounded text-[10px] text-stone-600">
                                       {m.name}
@@ -1144,7 +1144,7 @@ export default function ItineraryPlanner({
                           <label className="text-sm font-bold text-stone-900 border-l-4 border-amber-400 pl-3">
                             動態分車設定 (Vehicle Assignments)
                             <span className="ml-2 px-2 py-0.5 bg-stone-100 text-stone-400 text-[10px] rounded-full font-normal">
-                              共 {(newItem.isMain ? members.filter(m => !newItem.excludedMemberIds.includes(m.id)) : members.filter(m => newItem.assignedMemberIds.includes(m.id))).length} 人
+                              共 {(newItem.isMain ? members.filter(m => !selectedMembers.includes(m.id) && !dailyAbsenceIds.includes(m.id)) : members.filter(m => selectedMembers.includes(m.id) && !dailyAbsenceIds.includes(m.id))).length} 人
                             </span>
                           </label>
 
@@ -1186,16 +1186,16 @@ export default function ItineraryPlanner({
                               <span className="text-[10px] font-black tracking-widest text-amber-600 uppercase">A 車</span>
                               <span className="text-[10px] font-bold text-amber-500 bg-white/50 px-1.5 py-0.5 rounded">
                                 {(newItem.isMain 
-                                  ? members.filter(m => !newItem.excludedMemberIds.includes(m.id))
-                                  : members.filter(m => newItem.assignedMemberIds.includes(m.id))
+                                  ? members.filter(m => !selectedMembers.includes(m.id) && !dailyAbsenceIds.includes(m.id))
+                                  : members.filter(m => selectedMembers.includes(m.id) && !dailyAbsenceIds.includes(m.id))
                                 ).filter(m => newItem.vehicleAssignments[m.id] === 'A' || !newItem.vehicleAssignments[m.id]).length} 人
                               </span>
                             </div>
                             <div className="min-h-40 max-h-60 overflow-y-auto bg-stone-50/50 p-2 border border-stone-100 rounded-2xl flex flex-col gap-2 relative">
                               <AnimatePresence mode="popLayout" initial={false}>
                                 {(newItem.isMain 
-                                  ? members.filter(m => !newItem.excludedMemberIds.includes(m.id))
-                                  : members.filter(m => newItem.assignedMemberIds.includes(m.id))
+                                  ? members.filter(m => !selectedMembers.includes(m.id) && !dailyAbsenceIds.includes(m.id))
+                                  : members.filter(m => selectedMembers.includes(m.id) && !dailyAbsenceIds.includes(m.id))
                                 ).filter(m => newItem.vehicleAssignments[m.id] === 'A' || !newItem.vehicleAssignments[m.id]).map(m => (
                                   <motion.div 
                                     key={m.id} 
@@ -1220,8 +1220,8 @@ export default function ItineraryPlanner({
                                 ))}
                               </AnimatePresence>
                               {((newItem.isMain 
-                                ? members.filter(m => !newItem.excludedMemberIds.includes(m.id))
-                                : members.filter(m => newItem.assignedMemberIds.includes(m.id))
+                                ? members.filter(m => !selectedMembers.includes(m.id) && !dailyAbsenceIds.includes(m.id))
+                                : members.filter(m => selectedMembers.includes(m.id) && !dailyAbsenceIds.includes(m.id))
                                ).filter(m => newItem.vehicleAssignments[m.id] === 'A' || !newItem.vehicleAssignments[m.id]).length === 0) && (
                                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-20">
                                   <span className="text-[10px] uppercase tracking-widest font-bold">空</span>
@@ -1236,16 +1236,16 @@ export default function ItineraryPlanner({
                               <span className="text-[10px] font-black tracking-widest text-blue-600 uppercase">B 車</span>
                               <span className="text-[10px] font-bold text-blue-500 bg-white/50 px-1.5 py-0.5 rounded">
                                 {(newItem.isMain 
-                                  ? members.filter(m => !newItem.excludedMemberIds.includes(m.id))
-                                  : members.filter(m => newItem.assignedMemberIds.includes(m.id))
+                                  ? members.filter(m => !selectedMembers.includes(m.id) && !dailyAbsenceIds.includes(m.id))
+                                  : members.filter(m => selectedMembers.includes(m.id) && !dailyAbsenceIds.includes(m.id))
                                 ).filter(m => newItem.vehicleAssignments[m.id] === 'B').length} 人
                               </span>
                             </div>
                             <div className="min-h-40 max-h-60 overflow-y-auto bg-stone-50/50 p-2 border border-stone-100 rounded-2xl flex flex-col gap-2 relative">
                               <AnimatePresence mode="popLayout" initial={false}>
                                 {(newItem.isMain 
-                                  ? members.filter(m => !newItem.excludedMemberIds.includes(m.id))
-                                  : members.filter(m => newItem.assignedMemberIds.includes(m.id))
+                                  ? members.filter(m => !selectedMembers.includes(m.id) && !dailyAbsenceIds.includes(m.id))
+                                  : members.filter(m => selectedMembers.includes(m.id) && !dailyAbsenceIds.includes(m.id))
                                 ).filter(m => newItem.vehicleAssignments[m.id] === 'B').map(m => (
                                   <motion.div 
                                     key={m.id} 
@@ -1270,8 +1270,8 @@ export default function ItineraryPlanner({
                                 ))}
                               </AnimatePresence>
                               {((newItem.isMain 
-                                ? members.filter(m => !newItem.excludedMemberIds.includes(m.id))
-                                : members.filter(m => newItem.assignedMemberIds.includes(m.id))
+                                ? members.filter(m => !selectedMembers.includes(m.id) && !dailyAbsenceIds.includes(m.id))
+                                : members.filter(m => selectedMembers.includes(m.id) && !dailyAbsenceIds.includes(m.id))
                                ).filter(m => newItem.vehicleAssignments[m.id] === 'B').length === 0) && (
                                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-20">
                                   <span className="text-[10px] uppercase tracking-widest font-bold">空</span>
@@ -1283,7 +1283,7 @@ export default function ItineraryPlanner({
 
                       ) : (
                         <div className="p-4 bg-stone-100/50 border border-stone-200 rounded-2xl text-center">
-                          <p className="text-[10px] text-stone-500 font-bold mb-2 uppercase tracking-widest">目前共 {(newItem.isMain ? members.filter(m => !newItem.excludedMemberIds.includes(m.id)) : members.filter(m => newItem.assignedMemberIds.includes(m.id))).length} 人</p>
+                          <p className="text-[10px] text-stone-500 font-bold mb-2 uppercase tracking-widest">目前共 {(newItem.isMain ? members.filter(m => !selectedMembers.includes(m.id) && !dailyAbsenceIds.includes(m.id)) : members.filter(m => selectedMembers.includes(m.id) && !dailyAbsenceIds.includes(m.id))).length} 人</p>
                           <p className="text-[10px] text-stone-400 italic">參與名單將統一顯示於單一車輛。</p>
                         </div>
                       )}
@@ -1298,7 +1298,7 @@ export default function ItineraryPlanner({
                         <label className="text-sm font-bold text-stone-900 border-l-4 border-purple-400 pl-3">
                           {newItem.type === 'accommodation' ? '動態分房設定 (Room Assignments)' : '動態分組設定 (Group Assignments)'}
                           <span className="ml-2 px-2 py-0.5 bg-stone-100 text-stone-400 text-[10px] rounded-full font-normal">
-                            共 {(newItem.isMain ? members.filter(m => !selectedMembers.includes(m.id)) : members.filter(m => selectedMembers.includes(m.id))).length} 人
+                            共 {(newItem.isMain ? members.filter(m => !selectedMembers.includes(m.id) && !dailyAbsenceIds.includes(m.id)) : members.filter(m => selectedMembers.includes(m.id) && !dailyAbsenceIds.includes(m.id))).length} 人
                           </span>
                         </label>
 
@@ -1367,8 +1367,8 @@ export default function ItineraryPlanner({
                           // Use the explicitly defined groups list
                           const groupNames = newItem.groups || [];
                           const participants = newItem.isMain 
-                            ? members.filter(m => !selectedMembers.includes(m.id))
-                            : members.filter(m => selectedMembers.includes(m.id));
+                            ? members.filter(m => !selectedMembers.includes(m.id) && !dailyAbsenceIds.includes(m.id))
+                            : members.filter(m => selectedMembers.includes(m.id) && !dailyAbsenceIds.includes(m.id));
 
                           return (
                             <>
@@ -1497,7 +1497,7 @@ export default function ItineraryPlanner({
                       </div>
                     ) : (
                       <div className="p-4 bg-stone-100/50 border border-stone-200 rounded-2xl text-center">
-                        <p className="text-[10px] text-stone-500 font-bold mb-2 uppercase tracking-widest">目前共 {(newItem.isMain ? members.filter(m => !selectedMembers.includes(m.id)) : members.filter(m => selectedMembers.includes(m.id))).length} 人</p>
+                        <p className="text-[10px] text-stone-500 font-bold mb-2 uppercase tracking-widest">目前共 {(newItem.isMain ? members.filter(m => !selectedMembers.includes(m.id) && !dailyAbsenceIds.includes(m.id)) : members.filter(m => selectedMembers.includes(m.id) && !dailyAbsenceIds.includes(m.id))).length} 人</p>
                         <p className="text-[10px] text-stone-400 italic">全體統一活動，未開啟細分{newItem.type === 'accommodation' ? '客房' : '組別'}。</p>
                       </div>
                     )}
@@ -1505,7 +1505,9 @@ export default function ItineraryPlanner({
                   )}
 
                   <p className="text-[10px] text-stone-400 mt-2">
-                    {newItem.isMain ? `已排除 ${selectedMembers.length} 名團員 (其餘全員參加)` : `已指派 ${selectedMembers.length} 位參與者`}
+                    {newItem.isMain 
+                      ? `已排除 ${Array.from(new Set([...selectedMembers, ...dailyAbsenceIds])).length} 名團員 (含當日缺席)` 
+                      : `已指派 ${selectedMembers.filter(id => !dailyAbsenceIds.includes(id)).length} 位參與者 (已扣除當日缺席)`}
                   </p>
                 </div>
                </div>

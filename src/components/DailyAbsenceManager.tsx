@@ -8,7 +8,7 @@ import {
   Check,
   RotateCcw
 } from 'lucide-react';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { cn } from '../lib/utils';
 
@@ -56,9 +56,8 @@ export default function DailyAbsenceManager({ isOpen, onClose, date, members, tr
 
     setOptimisticIds(nextIds);
     try {
-      await setDoc(doc(db, 'settings', 'tripSettings'), { 
-        ...tripSettings,
-        dailyAbsences: nextDailyAbsences 
+      await updateDoc(doc(db, 'settings', 'tripSettings'), { 
+        [`dailyAbsences.${date}`]: nextIds
       });
     } catch (error) {
       console.error("Failed to update category absence:", error);
@@ -69,22 +68,16 @@ export default function DailyAbsenceManager({ isOpen, onClose, date, members, tr
 
   const handleReset = async () => {
     if (!tripSettings) return;
-    if (window.confirm(`確定要清除 ${date} 的所有缺勤記錄嗎？`)) {
-      const nextDailyAbsences = {
-        ...(tripSettings.dailyAbsences || {}),
-        [date]: []
-      };
-
-      setOptimisticIds([]);
-      try {
-        await setDoc(doc(db, 'settings', 'tripSettings'), { 
-          ...tripSettings,
-          dailyAbsences: nextDailyAbsences
-        });
-      } catch (error) {
-        setOptimisticIds(null);
-        alert("清除失败。");
-      }
+    
+    setOptimisticIds([]);
+    try {
+      await updateDoc(doc(db, 'settings', 'tripSettings'), { 
+        [`dailyAbsences.${date}`]: []
+      });
+    } catch (error) {
+      console.error("Failed to clear all absences:", error);
+      setOptimisticIds(null);
+      alert("清除失敗。");
     }
   };
 
@@ -146,13 +139,15 @@ export default function DailyAbsenceManager({ isOpen, onClose, date, members, tr
                 <div className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">
                   已標記 {absentMemberIds.length} 位人員缺席
                 </div>
-                <button 
+                <motion.button 
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
                   onClick={handleReset}
-                  className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-tighter text-red-500 hover:text-red-700 transition-colors"
+                  className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-tighter text-red-500 hover:text-red-700 transition-colors bg-white px-2 py-1 rounded-lg border border-red-100 shadow-sm"
                 >
                   <RotateCcw className="w-3 h-3" />
                   全部清除
-                </button>
+                </motion.button>
               </div>
 
               {/* Quick Select by Duration */}

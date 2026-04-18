@@ -13,7 +13,8 @@ import {
   Calendar,
   History,
   Copy,
-  Check
+  Check,
+  RotateCcw
 } from 'lucide-react';
 import { collection, addDoc, updateDoc, doc, Timestamp, setDoc, onSnapshot } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
@@ -46,7 +47,6 @@ export default function RollCallSystem({
   const [copySuccess, setCopySuccess] = useState(false);
   const [activeDate, setActiveDate] = useState<string>(safeFormat(new Date(), 'yyyy-MM-dd'));
   const [isItineraryListOpen, setIsItineraryListOpen] = useState(false);
-  const [isAbsenceModalOpen, setIsAbsenceModalOpen] = useState(false);
 
   // Daily absences are now derived from tripSettings
   const dailyAbsenceIds = useMemo(() => {
@@ -112,30 +112,29 @@ export default function RollCallSystem({
   
   const latestRollCall = useMemo(() => {
     if (!selectedItineraryId) return null;
-    return rollCalls
-      .filter(rc => rc.itineraryId === selectedItineraryId)
-      .sort((a, b) => (b.timestamp?.toDate?.() || new Date(b.timestamp)).getTime() - (a.timestamp?.toDate?.() || new Date(a.timestamp)).getTime())[0];
+    const deterministicId = `rc_${selectedItineraryId}`;
+    return rollCalls.find(rc => rc.id === deterministicId) || null;
   }, [rollCalls, selectedItineraryId]);
 
   const handleStatusChange = async (memberId: string, status: 'present' | 'absent' | 'divergent') => {
     if (!selectedItineraryId) return;
 
-    const rollCallId = latestRollCall?.id || `rc_${selectedItineraryId}_${Date.now()}`;
-    const statusMap = { ...(latestRollCall?.statusMap || {}), [memberId]: status };
-
+    const rollCallId = `rc_${selectedItineraryId}`;
     try {
       if (latestRollCall) {
-        await updateDoc(doc(db, 'rollcalls', latestRollCall.id), { statusMap });
+        await updateDoc(doc(db, 'rollcalls', rollCallId), {
+          [`statusMap.${memberId}`]: status
+        });
       } else {
         await setDoc(doc(db, 'rollcalls', rollCallId), {
           id: rollCallId,
           itineraryId: selectedItineraryId,
           timestamp: Timestamp.now(),
-          statusMap
+          statusMap: { [memberId]: status }
         });
       }
     } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, `rollcalls/${latestRollCall?.id || rollCallId}`);
+      handleFirestoreError(error, OperationType.WRITE, `rollcalls/${rollCallId}`);
     }
   };
 
@@ -168,6 +167,20 @@ export default function RollCallSystem({
     navigator.clipboard.writeText(names);
     setCopySuccess(true);
     setTimeout(() => setCopySuccess(false), 2000);
+  };
+
+  const handleResetRollCall = async () => {
+    const rollCallId = `rc_${selectedItineraryId}`;
+    if (!latestRollCall) return;
+    if (!confirm('確定要重設目前行程的所有點名狀態嗎？')) return;
+
+    try {
+      await updateDoc(doc(db, 'rollcalls', rollCallId), {
+        statusMap: {}
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `rollcalls/${rollCallId}`);
+    }
   };
 
   const getDivergentItinerary = (memberId: string) => {
@@ -404,11 +417,12 @@ export default function RollCallSystem({
                       <span>{copySuccess ? '已複製' : '複製名單'}</span>
                     </button>
                     <button 
-                      onClick={() => setIsAbsenceModalOpen(true)}
-                      className="w-full sm:w-auto px-6 py-4 bg-white border border-stone-200 rounded-2xl text-red-500 flex items-center justify-center gap-2 transition-all duration-200 ease-out shrink-0 font-bold text-sm shadow-sm hover:scale-[1.02] hover:bg-red-50/50 hover:border-red-100"
+                      onClick={handleResetRollCall}
+                      disabled={!latestRollCall}
+                      className="w-full sm:w-auto px-6 py-4 bg-white border border-stone-200 rounded-2xl text-red-500 flex items-center justify-center gap-2 transition-all duration-200 ease-out shrink-0 font-bold text-sm shadow-sm hover:scale-[1.02] hover:bg-red-50/50 hover:border-red-100 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <UserX className="w-4 h-4" />
-                      <span>{dailyAbsenceIds.length > 0 ? `已註記 ${dailyAbsenceIds.length} 位缺席` : '當日缺勤管理'}</span>
+                      <RotateCcw className="w-4 h-4" />
+                      <span>重設點名狀態</span>
                     </button>
                   </div>
 
@@ -621,14 +635,6 @@ export default function RollCallSystem({
           <p className="text-stone-500 max-w-sm mx-auto">請先到「行程規劃」頁面設定旅遊起始與結束日期。</p>
         </div>
       )}
-
-      <DailyAbsenceManager 
-        isOpen={isAbsenceModalOpen}
-        onClose={() => setIsAbsenceModalOpen(false)}
-        date={activeDate}
-        members={members}
-        tripSettings={tripSettings}
-      />
     </div>
   );
 }
