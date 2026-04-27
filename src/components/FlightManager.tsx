@@ -121,62 +121,55 @@ export default function FlightManager({ members, groups }: FlightManagerProps) {
 
   return (
     <div className="space-y-8 pb-20">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-3xl font-serif font-light mb-1">航班資訊管理</h2>
-          <p className="text-stone-500">快速填寫與檢視所有團員的航班時刻表。</p>
-        </div>
-      </div>
-
-      {/* Controls Row */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-        <div className="flex flex-col md:flex-row gap-4 flex-1">
-          <div className="relative flex-1 md:max-w-md">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white/50 backdrop-blur-sm p-4 sm:p-6 rounded-[2rem] border border-stone-200 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4 flex-1">
+          <h2 className="text-xl font-serif font-black text-stone-900 whitespace-nowrap">航班資訊管理</h2>
+          
+          <div className="relative w-full sm:w-48">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
             <input 
               type="text" 
-              placeholder="搜尋姓名..." 
+              placeholder="搜尋..." 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-11 pr-4 py-3 bg-white border border-stone-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#00F3FF]/50 transition-all shadow-sm focus:border-[#00F3FF]"
+              className="w-full pl-10 pr-3 py-2.5 bg-stone-50 border border-stone-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#00F3FF]/30 transition-all text-sm font-bold text-stone-900"
             />
           </div>
-          
+
           <button
             onClick={() => setShowMissingOnly(!showMissingOnly)}
             className={cn(
-              "flex items-center justify-center gap-2 px-6 py-3 rounded-2xl border text-sm font-medium transition-all shadow-sm shrink-0",
+              "flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all shrink-0",
               showMissingOnly 
-                ? "bg-red-50 text-red-600 border-red-200" 
-                : "bg-white text-stone-600 border-stone-200 hover:bg-stone-50"
+                ? "bg-red-500 text-white border-red-600 shadow-md" 
+                : "bg-white text-stone-500 border-stone-100 hover:border-stone-200"
             )}
           >
-            <Filter className="w-4 h-4" />
-            僅顯示未填妥名單
+            <Filter className="w-3 h-3" />
+            未填妥
           </button>
         </div>
 
-        {/* Tabs */}
-        <div className="flex p-1 bg-stone-100 rounded-2xl w-fit">
+        <div className="flex p-1 bg-stone-100/50 rounded-xl w-fit self-end lg:self-center">
           <button
             onClick={() => setActiveTab('outbound')}
             className={cn(
-              "flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold transition-all",
-              activeTab === 'outbound' ? "bg-white text-blue-600 shadow-sm" : "text-stone-500 hover:text-stone-700"
+              "flex items-center gap-1.5 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all",
+              activeTab === 'outbound' ? "bg-white text-blue-600 shadow-sm" : "text-stone-400 hover:text-stone-600"
             )}
           >
-            <PlaneTakeoff className="w-4 h-4" />
-            去程航班 (Outbound)
+            <PlaneTakeoff className="w-3.5 h-3.5" />
+            去程
           </button>
           <button
             onClick={() => setActiveTab('return')}
             className={cn(
-              "flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold transition-all",
-              activeTab === 'return' ? "bg-white text-orange-600 shadow-sm" : "text-stone-500 hover:text-stone-700"
+              "flex items-center gap-1.5 px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all",
+              activeTab === 'return' ? "bg-white text-orange-600 shadow-sm" : "text-stone-400 hover:text-stone-600"
             )}
           >
-            <PlaneLanding className="w-4 h-4" />
-            回程航班 (Return)
+            <PlaneLanding className="w-3.5 h-3.5" />
+            回程
           </button>
         </div>
       </div>

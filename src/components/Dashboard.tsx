@@ -44,10 +44,10 @@ export default function Dashboard({ members, itineraries, rollCalls, groups }: D
   const femaleMembers = members.filter(m => m.gender === '女' || m.gender === 'F');
 
   const stats = [
-    { label: '9天行程', value: nineDayMembers.length, icon: Calendar, color: 'text-stone-600', type: '9day' as TripType },
-    { label: '5天行程', value: fiveDayMembers.length, icon: Calendar, color: 'text-green-600', type: '5day' as TripType },
-    { label: '3天行程', value: threeDayMembers.length, icon: Calendar, color: 'text-rose-400', type: '3day' as TripType },
-    { label: '其他行程', value: otherMembers.length, icon: Calendar, color: 'text-purple-600', type: 'other' as TripType },
+    { label: '9天行程', value: nineDayMembers.length, icon: Calendar, color: 'text-indigo-600', type: '9day' as TripType },
+    { label: '5天行程', value: fiveDayMembers.length, icon: Calendar, color: 'text-emerald-600', type: '5day' as TripType },
+    { label: '3天行程', value: threeDayMembers.length, icon: Calendar, color: 'text-amber-600', type: '3day' as TripType },
+    { label: '其他行程', value: otherMembers.length, icon: Calendar, color: 'text-rose-600', type: 'other' as TripType },
   ];
 
   const getFilteredMembers = () => {
@@ -107,19 +107,19 @@ export default function Dashboard({ members, itineraries, rollCalls, groups }: D
         <div className="bg-white p-6 rounded-3xl border border-stone-200 shadow-sm flex items-center justify-between">
           <div>
             <p className="text-stone-500 text-sm font-medium">男生人數</p>
-            <p className="text-3xl font-serif mt-1 text-blue-600">{maleMembers.length}</p>
+            <p className="text-3xl font-serif mt-1 text-stone-900">{maleMembers.length}</p>
           </div>
-          <div className="p-4 bg-blue-50 rounded-2xl">
-            <Users className="w-8 h-8 text-blue-500" />
+          <div className="p-4 bg-stone-50 rounded-2xl">
+            <Users className="w-8 h-8 text-stone-400" />
           </div>
         </div>
         <div className="bg-white p-6 rounded-3xl border border-stone-200 shadow-sm flex items-center justify-between">
           <div>
             <p className="text-stone-500 text-sm font-medium">女生人數</p>
-            <p className="text-3xl font-serif mt-1 text-rose-600">{femaleMembers.length}</p>
+            <p className="text-3xl font-serif mt-1 text-stone-900">{femaleMembers.length}</p>
           </div>
-          <div className="p-4 bg-rose-50 rounded-2xl">
-            <Users className="w-8 h-8 text-rose-500" />
+          <div className="p-4 bg-stone-50 rounded-2xl">
+            <Users className="w-8 h-8 text-stone-400" />
           </div>
         </div>
       </div>

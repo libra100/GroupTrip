@@ -39,9 +39,9 @@ export interface Itinerary {
   dayIndex?: number;
   vehicleAssignments?: Record<string, string>;
   isMultiVehicle?: boolean;
-  groupAssignments?: Record<string, string>;
-  isGrouped?: boolean;
-  groups?: string[];
+  roomAssignments?: Record<string, string>;
+  isMultiRoom?: boolean;
+  rooms?: string[];
 }
 
 export interface RollCall {
@@ -54,6 +54,7 @@ export interface RollCall {
 export interface TripSettings {
   startDate: string;
   endDate: string;
+  officialStartDate?: string; // yyyy-MM-dd, anchor for Day 1
   dailyAbsences?: Record<string, string[]>; // date string -> member IDs
 }
 

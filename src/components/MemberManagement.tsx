@@ -29,7 +29,7 @@ import {
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import * as XLSX from 'xlsx';
-import { cn } from '../lib/utils';
+import { cn, getMemberTripDayColor } from '../lib/utils';
 import PersonalItineraryModal from './PersonalItineraryModal';
 
 interface MemberManagementProps {
@@ -48,6 +48,8 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
   const [newGroupName, setNewGroupName] = useState('');
   const [selectedGroupId, setSelectedGroupId] = useState<string>('all');
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [isDeletingAll, setIsDeletingAll] = useState(false);
   const [viewingItineraryMember, setViewingItineraryMember] = useState<Member | null>(null);
   const [isFlightExpanded, setIsFlightExpanded] = useState(false);
 
@@ -123,10 +125,10 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
   };
 
   const handleDeleteMember = async (id: string) => {
-    if (!confirm("確定要刪除此成員嗎？")) return;
     try {
       await deleteDoc(doc(db, 'members', id));
       setSelectedMemberIds(prev => prev.filter(mid => mid !== id));
+      setDeletingId(null);
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `members/${id}`);
     }
@@ -134,7 +136,6 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
 
   const handleDeleteSelected = async () => {
     if (selectedMemberIds.length === 0) return;
-    if (!confirm(`確定要刪除選中的 ${selectedMemberIds.length} 位成員嗎？`)) return;
 
     try {
       const batch = writeBatch(db);
@@ -143,10 +144,10 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
       });
       await batch.commit();
       setSelectedMemberIds([]);
-      alert(`成功刪除 ${selectedMemberIds.length} 位成員。`);
+      setIsDeletingAll(false);
     } catch (error) {
       console.error("Batch delete failed:", error);
-      alert("刪除失敗，請確認資料庫權限。");
+      handleFirestoreError(error, OperationType.DELETE, "batch");
     }
   };
 
@@ -308,13 +309,32 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
         </div>
         <div className="flex items-center gap-3">
           {selectedMemberIds.length > 0 && (
-            <button 
-              onClick={handleDeleteSelected}
-              className="flex items-center gap-2 bg-red-50 text-red-600 border border-red-200 px-4 py-2 rounded-full text-sm font-bold hover:bg-red-100 transition-all shadow-sm animate-in fade-in slide-in-from-right-4"
-            >
-              <Trash2 className="w-4 h-4" />
-              刪除選中 ({selectedMemberIds.length})
-            </button>
+            <div className="flex items-center gap-2 animate-in fade-in slide-in-from-right-4">
+              {isDeletingAll ? (
+                <div className="flex items-center gap-2 bg-red-50 p-1 rounded-full border border-red-200">
+                  <button 
+                    onClick={handleDeleteSelected}
+                    className="bg-red-500 text-white px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-widest hover:bg-red-600 transition-colors shadow-sm"
+                  >
+                    確認刪除 {selectedMemberIds.length} 位
+                  </button>
+                  <button 
+                    onClick={() => setIsDeletingAll(false)}
+                    className="p-1.5 text-stone-400 hover:text-stone-600 transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <button 
+                  onClick={() => setIsDeletingAll(true)}
+                  className="flex items-center gap-2 bg-red-50 text-red-600 border border-red-200 px-4 py-2 rounded-full text-sm font-bold hover:bg-red-100 transition-all shadow-sm"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  刪除選中 ({selectedMemberIds.length})
+                </button>
+              )}
+            </div>
           )}
           <button 
             onClick={() => setIsManagingGroups(true)}
@@ -338,40 +358,34 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
         </div>
       </div>
 
-      {/* Filters & Analytics */}
-      <div className="flex flex-col gap-6">
-        <div className="relative w-full md:max-w-md">
+      <div className="flex flex-col xl:flex-row items-center gap-4 bg-white p-2 rounded-3xl border border-stone-100 shadow-sm">
+        <div className="relative w-full xl:w-96 flex-shrink-0">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
           <input 
             type="text" 
-            placeholder="搜尋姓名、飲食或標籤..." 
+            placeholder="搜尋團員姓名、組別或標籤..." 
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-11 pr-4 py-3 bg-white border border-stone-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#00F3FF]/50 transition-all shadow-sm focus:border-[#00F3FF] focus:brightness-110"
+            className="w-full pl-11 pr-4 py-3 bg-stone-50 border border-transparent rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#00F3FF]/50 transition-all focus:bg-white focus:border-[#00F3FF] focus:brightness-110 font-medium"
           />
         </div>
         
-        {/* Group Summary Chips */}
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex-1 w-full flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
           <button
             onClick={() => setSelectedGroupId('all')}
             className={cn(
-              "flex items-center gap-2 px-5 py-2.5 rounded-2xl border text-sm font-medium transition-all duration-200 ease-out",
+              "flex-shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl border text-xs font-bold transition-all duration-200",
               selectedGroupId === 'all' 
-                ? "bg-stone-900 text-white border-stone-900 shadow-[0_0_5px_rgba(0,243,255,0.3)] brightness-110" 
-                : "bg-white text-stone-600 border-stone-200 hover:bg-stone-50 hover:scale-[1.02] hover:shadow-[0_0_5px_rgba(0,0,0,0.1)] active:border-[#00F3FF]"
+                ? "bg-stone-900 text-white border-stone-900 shadow-lg scale-105" 
+                : "bg-white text-stone-400 border-stone-100 hover:border-stone-200 hover:bg-stone-50"
             )}
           >
-            <Users className="w-4 h-4" />
-            所有成員
-            <span className={cn(
-              "px-2 py-0.5 rounded-full text-xs",
-              selectedGroupId === 'all' ? "bg-white/20 text-white" : "bg-stone-100 text-stone-500"
-            )}>
-              {members.length}
-            </span>
+            <Users className="w-3.5 h-3.5" />
+            所有成員 ({members.length})
           </button>
           
+          <div className="w-px h-6 bg-stone-100 flex-shrink-0 mx-1" />
+
           {groups.map(g => {
             const count = members.filter(m => m.groupId === g.id).length;
             return (
@@ -379,19 +393,13 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
                 key={g.id}
                 onClick={() => setSelectedGroupId(g.id)}
                 className={cn(
-                  "flex items-center gap-2 px-5 py-2.5 rounded-2xl border text-sm font-medium transition-all duration-200 ease-out",
+                  "flex-shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-xl border text-xs font-bold transition-all duration-200",
                   selectedGroupId === g.id 
-                    ? "bg-stone-900 text-white border-stone-900 shadow-[0_0_5px_rgba(0,243,255,0.3)] brightness-110" 
-                    : "bg-white text-stone-600 border-stone-200 hover:bg-stone-50 hover:scale-[1.02] hover:shadow-[0_0_5px_rgba(0,0,0,0.1)] active:border-[#00F3FF]"
+                    ? "bg-stone-900 text-white border-stone-900 shadow-lg scale-105" 
+                    : "bg-white text-stone-400 border-stone-100 hover:border-stone-200 hover:bg-stone-50"
                 )}
               >
-                {g.name}
-                <span className={cn(
-                  "px-2 py-0.5 rounded-full text-xs",
-                  selectedGroupId === g.id ? "bg-white/20 text-white" : "bg-stone-100 text-stone-500"
-                )}>
-                  {count}
-                </span>
+                {g.name} ({count})
               </button>
             );
           })}
@@ -490,8 +498,8 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
                   </td>
                   <td className="px-6 py-4">
                     <span className={cn(
-                      "px-3 py-1 rounded-full text-xs font-bold border whitespace-nowrap",
-                      member.tripDays ? (member.tripDays >= 9 ? "bg-purple-100 text-purple-700 border-purple-200" : "bg-teal-100 text-teal-700 border-teal-200") : "bg-stone-100 text-stone-500 border-stone-200"
+                      "px-3 py-1 rounded-full text-xs font-black border whitespace-nowrap",
+                      getMemberTripDayColor(member.tripDays)
                     )}>
                       {member.tripDays ? `${member.tripDays} 天` : '未標註'}
                     </span>
@@ -499,9 +507,9 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
                   <td className="px-6 py-4">
                     <span className={cn(
                       "text-xs px-2 py-1 rounded-full font-medium",
-                      member.gender === '男' || member.gender === 'M' ? "bg-blue-50 text-blue-600 border border-blue-100" : 
-                      member.gender === '女' || member.gender === 'F' ? "bg-rose-50 text-rose-600 border border-rose-100" : 
-                      "bg-stone-50 text-stone-400 border border-stone-100"
+                      member.gender === '男' || member.gender === 'M' ? "bg-stone-50 text-stone-600 border border-stone-200" : 
+                      member.gender === '女' || member.gender === 'F' ? "bg-stone-50 text-stone-600 border border-stone-200" : 
+                      "bg-stone-50/50 text-stone-400 border border-stone-100/50"
                     )}>
                       {member.gender === '男' || member.gender === 'M' ? '男' : 
                        member.gender === '女' || member.gender === 'F' ? '女' : '未設定'}
@@ -516,23 +524,47 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
                     </span>
                   </td>
                   <td className="px-6 py-4 text-right">
-                    <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button 
-                        onClick={() => setViewingItineraryMember(member)}
-                        className="p-2 text-stone-400 hover:text-stone-900 hover:bg-stone-100 rounded-lg transition-colors flex items-center gap-1.5"
-                        title="查看個人行程"
-                      >
-                        <Calendar className="w-4 h-4" />
-                        <span className="text-[10px] font-bold">個人行程</span>
-                      </button>
-                      <button 
-                        onClick={() => setEditingMember(member)}
-                        className="p-2 text-stone-400 hover:text-stone-900 hover:bg-stone-100 rounded-lg transition-colors"
-                        title="編輯成員"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                    </div>
+                      {deletingId === member.id ? (
+                        <div className="flex items-center justify-end gap-1 bg-red-50 p-1 rounded-lg border border-red-100">
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); handleDeleteMember(member.id); }} 
+                            className="px-2 py-1 bg-red-500 text-white text-[10px] font-black rounded-md shadow-sm hover:bg-red-600 transition-colors"
+                          >
+                            確認
+                          </button>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); setDeletingId(null); }} 
+                            className="p-1 text-stone-400 hover:text-stone-600 transition-colors"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-end gap-1">
+                          <button 
+                            onClick={() => setViewingItineraryMember(member)}
+                            className="p-2 text-stone-400 hover:text-stone-900 hover:bg-stone-100 rounded-lg transition-colors flex items-center gap-1.5"
+                            title="查看個人行程"
+                          >
+                            <Calendar className="w-4 h-4" />
+                            <span className="text-[10px] font-bold">個人行程</span>
+                          </button>
+                          <button 
+                            onClick={() => setEditingMember(member)}
+                            className="p-2 text-stone-400 hover:text-stone-900 hover:bg-stone-100 rounded-lg transition-colors"
+                            title="編輯成員"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button 
+                            onClick={() => setDeletingId(member.id)}
+                            className="p-2 text-stone-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                            title="刪除成員"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
                   </td>
                 </tr>
               ))}
