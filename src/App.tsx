@@ -82,14 +82,14 @@ export default function App() {
       {/* Sidebar */}
       <aside 
         className={cn(
-          "fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-stone-200 transition-transform duration-300 lg:static lg:translate-x-0 lg:flex-shrink-0",
-          !isSidebarOpen && "-translate-x-full lg:hidden"
+          "fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-stone-200 transition-transform duration-300 xl:static xl:translate-x-0 xl:flex-shrink-0",
+          !isSidebarOpen && "-translate-x-full xl:hidden"
         )}
       >
         <div className="h-full flex flex-col p-6">
           <div className="flex items-center justify-between mb-10">
             <h1 className="text-xl font-serif font-medium">GroupTrip Pro</h1>
-            <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden">
+            <button onClick={() => setIsSidebarOpen(false)} className="xl:hidden">
               <X className="w-5 h-5" />
             </button>
           </div>
@@ -116,14 +116,14 @@ export default function App() {
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
-        <header className="h-16 bg-white border-bottom border-stone-200 flex items-center px-6 lg:hidden">
+        <header className="h-16 bg-white border-bottom border-stone-200 flex items-center px-6 xl:hidden">
           <button onClick={() => setIsSidebarOpen(true)}>
             <Menu className="w-6 h-6" />
           </button>
           <h1 className="ml-4 text-lg font-serif font-medium">GroupTrip Pro</h1>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-6 lg:p-10">
+        <div className="flex-1 overflow-y-auto p-6 xl:p-10">
           {currentView === 'dashboard' && (
             <Dashboard 
               members={members} 

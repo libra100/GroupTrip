@@ -420,12 +420,12 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
                     }
                   </button>
                 </th>
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500 whitespace-nowrap min-w-[120px] w-[140px]">姓名</th>
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500 whitespace-nowrap">組別</th>
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500 whitespace-nowrap">天數</th>
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500 whitespace-nowrap">性別</th>
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500 whitespace-nowrap">飲食偏好</th>
-                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500 whitespace-nowrap text-right">操作</th>
+                <th className="px-2 sm:px-4 xl:px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500 whitespace-nowrap min-w-[120px] w-[140px]">姓名</th>
+                <th className="px-2 sm:px-4 xl:px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500 whitespace-nowrap hidden lg:table-cell">組別</th>
+                <th className="px-2 sm:px-4 xl:px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500 whitespace-nowrap hidden md:table-cell">天數</th>
+                <th className="px-2 sm:px-4 xl:px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500 whitespace-nowrap hidden xl:table-cell">性別</th>
+                <th className="px-2 sm:px-4 xl:px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500 whitespace-nowrap hidden lg:table-cell">飲食偏好</th>
+                <th className="px-2 sm:px-4 xl:px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500 whitespace-nowrap text-right">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
@@ -434,7 +434,7 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
                   "hover:bg-stone-50 transition-colors group whitespace-nowrap",
                   selectedMemberIds.includes(member.id) && "bg-stone-50/80"
                 )}>
-                  <td className="px-6 py-4">
+                  <td className="px-2 sm:px-4 xl:px-6 py-4">
                     <button 
                       onClick={() => toggleSelectMember(member.id)}
                       className="p-1 text-stone-400 hover:text-stone-900 transition-colors"
@@ -445,7 +445,7 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
                       }
                     </button>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-2 sm:px-4 xl:px-6 py-4">
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-full bg-stone-100 flex items-center justify-center text-xs font-bold text-stone-600">
                         {member.name.charAt(0)}
@@ -484,7 +484,7 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-2 sm:px-4 xl:px-6 py-4 hidden lg:table-cell">
                     <select
                       value={member.groupId || ''}
                       onChange={(e) => handleQuickGroupChange(member.id, e.target.value)}
@@ -496,7 +496,7 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
                       ))}
                     </select>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-2 sm:px-4 xl:px-6 py-4 hidden md:table-cell">
                     <span className={cn(
                       "px-3 py-1 rounded-full text-xs font-black border whitespace-nowrap",
                       getMemberTripDayColor(member.tripDays)
@@ -504,7 +504,7 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
                       {member.tripDays ? `${member.tripDays} 天` : '未標註'}
                     </span>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-2 sm:px-4 xl:px-6 py-4 hidden xl:table-cell">
                     <span className={cn(
                       "text-xs px-2 py-1 rounded-full font-medium",
                       member.gender === '男' || member.gender === 'M' ? "bg-stone-50 text-stone-600 border border-stone-200" : 
@@ -515,7 +515,7 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
                        member.gender === '女' || member.gender === 'F' ? '女' : '未設定'}
                     </span>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-2 sm:px-4 xl:px-6 py-4 hidden lg:table-cell">
                     <span className={cn(
                       "text-xs px-2 py-1 rounded-full font-medium",
                       member.dietaryHabits?.includes('素') ? "bg-green-100 text-green-700" : "bg-stone-100 text-stone-600"
@@ -523,7 +523,7 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
                       {member.dietaryHabits || '一般 (葷)'}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-right">
+                  <td className="px-2 sm:px-4 xl:px-6 py-4 text-right">
                       {deletingId === member.id ? (
                         <div className="flex items-center justify-end gap-1 bg-red-50 p-1 rounded-lg border border-red-100">
                           <button 
@@ -570,7 +570,7 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
               ))}
               {filteredMembers.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-stone-400">
+                  <td colSpan={7} className="px-6 py-12 text-center text-stone-400">
                     找不到符合搜尋條件的團員。
                   </td>
                 </tr>

@@ -390,9 +390,9 @@ export default function RollCallSystem({
             {selectedItineraryId ? (
               <>
                 {/* Itinerary Dashboard Header */}
-                <div className="bg-white border border-stone-200 rounded-[2rem] p-4 sm:p-6 shadow-sm flex flex-col xl:flex-row xl:items-center gap-4 xl:gap-6">
+                <div className="bg-white border border-stone-200 rounded-[2rem] p-4 sm:p-6 shadow-sm flex flex-wrap items-center gap-y-4 gap-x-6">
                   {/* Title Section */}
-                  <div className="flex items-center gap-4 min-w-0 flex-shrink-0 xl:flex-1">
+                  <div className="flex items-center gap-4 min-w-0 xl:flex-1">
                     <div className="bg-stone-900 p-3 rounded-2xl flex-shrink-0 text-white shadow-lg">
                       <UserCheck className="w-5 h-5" />
                     </div>
@@ -404,8 +404,8 @@ export default function RollCallSystem({
                     </div>
                   </div>
 
-                  {/* Search Section */}
-                  <div className="relative w-full xl:max-w-[180px] xl:order-none order-last sm:order-none">
+                  {/* Search Section - Hidden on Mobile */}
+                  <div className="hidden xl:block relative xl:max-w-[180px]">
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
                     <input 
                       type="text" 
@@ -417,8 +417,8 @@ export default function RollCallSystem({
                   </div>
 
                   {/* Stats & Actions Section */}
-                  <div className="flex flex-col sm:flex-row items-center gap-4 w-full xl:w-auto shrink-0">
-                    <div className="flex flex-row items-center gap-3 sm:gap-4 bg-stone-50 p-2 sm:p-3 rounded-2xl border border-stone-100 w-full sm:w-auto justify-center">
+                  <div className="flex flex-row items-center gap-4 shrink-0 ml-auto">
+                    <div className="flex flex-row items-center gap-3 sm:gap-4 bg-stone-50 p-2 sm:p-3 rounded-2xl border border-stone-100 w-auto justify-center">
                       <div className="flex flex-col items-center px-1 sm:px-2">
                         <span className="text-[8px] font-black text-stone-400 uppercase tracking-tighter">參與</span>
                         <span className="text-base font-black text-stone-900 leading-none mt-0.5">{currentItinerary ? getParticipantCount(currentItinerary) : 0}</span>
@@ -438,7 +438,7 @@ export default function RollCallSystem({
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <div className="flex items-center gap-2 w-auto">
                       <button 
                         onClick={handleCopyAllNames}
                         disabled={filteredMembers.length === 0}
@@ -740,15 +740,15 @@ export default function RollCallSystem({
                           </div>
                         );
                       })()}
-                      {filteredMembers.length === 0 && (
+                    </div>
+                    {filteredMembers.length === 0 && (
                         <div className="p-12 text-center text-stone-400">
                           找不到相關團員
                         </div>
                       )}
                   </div>
                 </div>
-              </div>
-            </>
+              </>
             ) : (
               <div className="flex-1 bg-white border border-stone-200 rounded-3xl p-20 text-center shadow-sm flex flex-col items-center justify-center">
                 <CheckCircle2 className="w-16 h-16 mb-6 text-stone-200" />
