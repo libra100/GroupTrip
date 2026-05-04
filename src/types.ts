@@ -42,6 +42,12 @@ export interface Itinerary {
   roomAssignments?: Record<string, string>;
   isMultiRoom?: boolean;
   rooms?: string[];
+  seatingConfig?: {
+    columns: number;
+    rows: number;
+  };
+  seatingAssignments?: Record<string, string>;
+  seatingNotes?: Record<string, string>;
 }
 
 export interface RollCall {

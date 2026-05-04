@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { RollCall, Itinerary, Member, TripSettings, DailyAbsence } from '../types';
+import { RollCall, Itinerary, Member, TripSettings, DailyAbsence, Group } from '../types';
 import { 
   Users,
   Search,
@@ -14,13 +14,15 @@ import {
   History,
   Copy,
   Check,
-  RotateCcw
+  RotateCcw,
+  Layout
 } from 'lucide-react';
 import { collection, addDoc, updateDoc, doc, Timestamp, setDoc, onSnapshot } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { format, parseISO, addDays, differenceInDays } from 'date-fns';
 import { cn } from '../lib/utils';
 import DailyAbsenceManager from './DailyAbsenceManager';
+import TableSeating from './TableSeating';
 
 const safeFormat = (date: Date | null | number | undefined, formatStr: string) => {
   if (!date) return '';
@@ -34,13 +36,15 @@ interface RollCallSystemProps {
   itineraries: Itinerary[];
   members: Member[];
   tripSettings: TripSettings | null;
+  groups: Group[];
 }
 
 export default function RollCallSystem({ 
   rollCalls, 
   itineraries, 
   members,
-  tripSettings
+  tripSettings,
+  groups
 }: RollCallSystemProps) {
   const [selectedItineraryId, setSelectedItineraryId] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -48,6 +52,7 @@ export default function RollCallSystem({
   const [activeDate, setActiveDate] = useState<string>(safeFormat(new Date(), 'yyyy-MM-dd'));
   const [isItineraryListOpen, setIsItineraryListOpen] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [viewMode, setViewMode] = useState<'list' | 'seating'>('list');
 
   // Daily absences are now derived from tripSettings
   const dailyAbsenceIds = useMemo(() => {
@@ -118,6 +123,11 @@ export default function RollCallSystem({
   }, [activeDayItineraries, selectedItineraryId]);
 
   const currentItinerary = itineraries.find(it => it.id === selectedItineraryId);
+
+  // Reset view mode when itinerary changes
+  useEffect(() => {
+    setViewMode('list');
+  }, [selectedItineraryId]);
   
   const latestRollCall = useMemo(() => {
     if (!selectedItineraryId) return null;
@@ -439,6 +449,18 @@ export default function RollCallSystem({
                     </div>
 
                     <div className="flex items-center gap-2 w-auto">
+                      {currentItinerary?.type === 'dining' && (
+                        <button
+                          onClick={() => setViewMode(viewMode === 'list' ? 'seating' : 'list')}
+                          className={cn(
+                            "flex-1 sm:flex-none px-3 py-3 rounded-2xl border text-[9px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-1.5",
+                            viewMode === 'seating' ? "bg-amber-500 text-white border-amber-600 shadow-md" : "bg-white text-stone-600 border-stone-200 hover:border-stone-900"
+                          )}
+                        >
+                          <Layout className="w-3 h-3" />
+                          {viewMode === 'seating' ? '列表' : '桌位圖'}
+                        </button>
+                      )}
                       <button 
                         onClick={handleCopyAllNames}
                         disabled={filteredMembers.length === 0}
@@ -471,6 +493,14 @@ export default function RollCallSystem({
 
                 {/* Member List Section */}
                 <div className="flex-1 flex flex-col gap-4 min-h-0 overflow-hidden">
+                  {viewMode === 'seating' && currentItinerary ? (
+                    <TableSeating
+                      members={members}
+                      itinerary={currentItinerary}
+                      rollCall={latestRollCall}
+                      groups={groups}
+                    />
+                  ) : (
                   <div className="bg-white border border-stone-200 rounded-3xl shadow-sm overflow-hidden flex-1 flex flex-col">
                     {/* Dining Summary Section */}
                     {currentItinerary?.type === 'dining' && (
@@ -747,6 +777,7 @@ export default function RollCallSystem({
                         </div>
                       )}
                   </div>
+                  )}
                 </div>
               </>
             ) : (
