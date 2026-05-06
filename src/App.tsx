@@ -160,6 +160,7 @@ export default function App() {
               itineraries={itineraries} 
               members={members} 
               tripSettings={tripSettings}
+              groups={groups}
             />
           )}
         </div>
