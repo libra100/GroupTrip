@@ -2,10 +2,8 @@ import React, { useState, useMemo } from 'react';
 import { Member, Itinerary, RollCall, Group } from '../types';
 import {
   Users,
-  Settings2,
   Trash2,
   Wand2,
-  Save,
   X,
   MessageSquare,
   AlertCircle,
@@ -28,11 +26,13 @@ export default function TableSeating({
   rollCall,
   groups
 }: TableSeatingProps) {
-  const [isEditingConfig, setIsEditingConfig] = useState(false);
-  const [columns, setColumns] = useState(itinerary.seatingConfig?.columns || 4);
-  const [rows, setRows] = useState(itinerary.seatingConfig?.rows || 2);
   const [selectedSeat, setSelectedSeat] = useState<{unitIndex: number, seatIndex: number} | null>(null);
+  const [swapSource, setSwapSource] = useState<{unitIndex: number, seatIndex: number} | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  
+  // Use a fixed or config-based number of tables
+  const columns = itinerary.seatingConfig?.columns || 5;
+  const rows = itinerary.seatingConfig?.rows || 2;
 
   // Map member IDs to member objects for easy lookup
   const memberMap = useMemo(() => {
@@ -68,17 +68,34 @@ export default function TableSeating({
     });
   }, [members, itinerary, assignments]);
 
-  const handleUpdateConfig = async () => {
-    setIsSaving(true);
+  const handleSwapSeats = async (target: {unitIndex: number, seatIndex: number}) => {
+    if (!swapSource) return;
+    
+    const sourceId = `${swapSource.unitIndex}_${swapSource.seatIndex}`;
+    const targetId = `${target.unitIndex}_${target.seatIndex}`;
+    
+    if (sourceId === targetId) {
+      setSwapSource(null);
+      return;
+    }
+
+    const newAssignments = { ...assignments };
+    const sourceMemberId = assignments[sourceId];
+    const targetMemberId = assignments[targetId];
+
+    if (sourceMemberId) newAssignments[targetId] = sourceMemberId;
+    else delete newAssignments[targetId];
+
+    if (targetMemberId) newAssignments[sourceId] = targetMemberId;
+    else delete newAssignments[sourceId];
+
     try {
       await updateDoc(doc(db, 'itineraries', itinerary.id), {
-        seatingConfig: { columns, rows }
+        seatingAssignments: newAssignments
       });
-      setIsEditingConfig(false);
+      setSwapSource(null);
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `itineraries/${itinerary.id}`);
-    } finally {
-      setIsSaving(false);
     }
   };
 
@@ -123,60 +140,6 @@ export default function TableSeating({
     }
   };
 
-  const autoAllocate = async () => {
-    // 1. Get all participants
-    const participants = members.filter(m => {
-      if (itinerary.isMain) {
-        return !itinerary.excludedMemberIds?.includes(m.id);
-      }
-      return itinerary.assignedMemberIds?.includes(m.id);
-    });
-
-    // 2. Sort participants: Group by GroupId, then by dietary habits
-    // "群組優先，但是素食的也不要排太遠"
-    // Approach: Group by GroupId. Sort groups by size?
-    // Within each group, sort so vegetarians are together?
-    // Actually, maybe we should just sort all participants by GroupId primarily,
-    // and then secondary sort by dietary habits.
-    const sortedParticipants = [...participants].sort((a, b) => {
-      const gA = a.groupId || 'zzzz';
-      const gB = b.groupId || 'zzzz';
-      if (gA !== gB) return gA.localeCompare(gB);
-
-      const isVegA = a.dietaryHabits?.includes('素') ? 0 : 1;
-      const isVegB = b.dietaryHabits?.includes('素') ? 0 : 1;
-      return isVegA - isVegB;
-    });
-
-    // 3. Fill seats unit by unit
-    const newAssignments: Record<string, string> = {};
-    let memberIdx = 0;
-    for (let u = 0; u < columns * rows && memberIdx < sortedParticipants.length; u++) {
-      for (let s = 0; s < 12 && memberIdx < sortedParticipants.length; s++) {
-        newAssignments[`${u}_${s}`] = sortedParticipants[memberIdx].id;
-        memberIdx++;
-      }
-    }
-
-    try {
-      await updateDoc(doc(db, 'itineraries', itinerary.id), {
-        seatingAssignments: newAssignments
-      });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `itineraries/${itinerary.id}`);
-    }
-  };
-
-  const clearAll = async () => {
-    if (!confirm('確定要清除所有座位安排嗎？')) return;
-    try {
-      await updateDoc(doc(db, 'itineraries', itinerary.id), {
-        seatingAssignments: {}
-      });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `itineraries/${itinerary.id}`);
-    }
-  };
 
   const renderSeat = (unitIndex: number, seatIndex: number) => {
     const seatId = `${unitIndex}_${seatIndex}`;
@@ -186,12 +149,25 @@ export default function TableSeating({
     const note = seatingNotes[seatId];
     const isVeg = member?.dietaryHabits?.includes('素');
 
+    const isSwapSource = swapSource?.unitIndex === unitIndex && swapSource?.seatIndex === seatIndex;
+
     return (
-      <button
+      <div
         key={seatId}
-        onClick={() => setSelectedSeat({ unitIndex, seatIndex })}
+        onClick={() => {
+          if (swapSource) {
+            handleSwapSeats({ unitIndex, seatIndex });
+          } else {
+            setSwapSource({ unitIndex, seatIndex });
+          }
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setSelectedSeat({ unitIndex, seatIndex });
+        }}
         className={cn(
-          "relative h-12 flex items-center px-3 rounded-lg border-2 transition-all group",
+          "relative h-9 flex items-center px-2 rounded-lg border-2 transition-all group cursor-pointer",
+          isSwapSource ? "border-[#00F3FF] bg-[#00F3FF]/5 shadow-[0_0_10px_rgba(0,243,255,0.3)] ring-1 ring-[#00F3FF]/20" :
           member
             ? (status === 'present'
                 ? "bg-green-50 border-green-200"
@@ -204,35 +180,38 @@ export default function TableSeating({
         <div className="flex-1 min-w-0 flex items-center gap-2">
           {member ? (
             <>
-              <span className={cn(
-                "w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center text-[10px] font-black",
-                status === 'present' ? "bg-green-500 text-white" :
-                status === 'divergent' ? "bg-purple-500 text-white" :
-                "bg-stone-200 text-stone-500"
-              )}>
-                {member.name.charAt(0)}
-              </span>
               <span className="text-xs font-bold text-stone-700 truncate">{member.name}</span>
-              {isVeg && <span className="text-[10px]">🌿</span>}
+              {isVeg && <span className="text-[10px] flex-shrink-0">🌿</span>}
             </>
           ) : (
             <span className="text-[10px] font-bold text-stone-300 mx-auto">空位</span>
           )}
         </div>
+        
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setSelectedSeat({ unitIndex, seatIndex });
+          }}
+          className="p-1 rounded-md opacity-0 group-hover:opacity-100 hover:bg-stone-100 transition-all"
+        >
+          <AlertCircle className="w-3 h-3 text-stone-400" />
+        </button>
+
         {note && (
           <div className="absolute -top-1 -right-1 w-3 h-3 bg-amber-400 rounded-full border-2 border-white shadow-sm" />
         )}
-      </button>
+      </div>
     );
   };
 
   const renderUnit = (unitIndex: number) => {
     return (
-      <div key={unitIndex} className="bg-white border-2 border-stone-200 rounded-2xl p-4 shadow-sm">
+      <div key={unitIndex} className="bg-white border-2 border-stone-200 rounded-xl p-3 shadow-sm hover:border-stone-300 transition-all">
         <div className="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-3 text-center">
           組別 {unitIndex + 1}
         </div>
-        <div className="flex gap-4">
+        <div className="flex gap-2">
           {/* Left side (6 seats) */}
           <div className="flex-1 flex flex-col gap-2">
             {[0, 1, 2].map(i => renderSeat(unitIndex, i))}
@@ -252,92 +231,16 @@ export default function TableSeating({
 
   return (
     <div className="flex flex-col gap-6 h-full">
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-4 rounded-3xl border border-stone-200 shadow-sm">
-        <div className="flex items-center gap-4">
-          <div className="p-2 bg-amber-50 rounded-xl text-amber-600">
-            <Users className="w-5 h-5" />
-          </div>
-          <div>
-            <h3 className="font-serif font-black text-stone-900 leading-tight">餐廳座位規劃</h3>
-            <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest mt-0.5">Dining Seating Plan</p>
-          </div>
-        </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setIsEditingConfig(!isEditingConfig)}
-            className="p-2.5 rounded-xl border border-stone-200 text-stone-600 hover:bg-stone-50 transition-all"
-            title="調整配置"
-          >
-            <Settings2 className="w-5 h-5" />
-          </button>
-          <div className="w-px h-6 bg-stone-200 mx-1" />
-          <button
-            onClick={autoAllocate}
-            className="flex items-center gap-2 px-4 py-2.5 bg-stone-900 text-white rounded-xl text-sm font-bold hover:bg-stone-800 transition-all shadow-md"
-          >
-            <Wand2 className="w-4 h-4" />
-            自動分配
-          </button>
-          <button
-            onClick={clearAll}
-            className="flex items-center gap-2 px-4 py-2.5 bg-rose-50 text-rose-600 border border-rose-100 rounded-xl text-sm font-bold hover:bg-rose-100 transition-all"
-          >
-            <Trash2 className="w-4 h-4" />
-            全部清除
-          </button>
-        </div>
-      </div>
-
-      {isEditingConfig && (
-        <div className="bg-stone-900 text-white p-6 rounded-3xl shadow-xl animate-in slide-in-from-top-4">
-          <div className="flex items-center justify-between mb-4">
-            <h4 className="font-bold flex items-center gap-2">
-              <Settings2 className="w-5 h-5 text-[#00F3FF]" />
-              調整餐廳規模
-            </h4>
-            <button onClick={() => setIsEditingConfig(false)}><X className="w-5 h-5" /></button>
-          </div>
-          <div className="grid grid-cols-2 gap-6">
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase tracking-widest text-stone-400">欄數 (Columns)</label>
-              <input
-                type="number"
-                value={columns}
-                onChange={e => setColumns(parseInt(e.target.value) || 1)}
-                className="w-full bg-stone-800 border border-stone-700 rounded-xl px-4 py-3 font-bold focus:ring-2 focus:ring-[#00F3FF]/30 outline-none"
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase tracking-widest text-stone-400">排數 (Rows)</label>
-              <input
-                type="number"
-                value={rows}
-                onChange={e => setRows(parseInt(e.target.value) || 1)}
-                className="w-full bg-stone-800 border border-stone-700 rounded-xl px-4 py-3 font-bold focus:ring-2 focus:ring-[#00F3FF]/30 outline-none"
-              />
-            </div>
-          </div>
-          <button
-            onClick={handleUpdateConfig}
-            disabled={isSaving}
-            className="w-full mt-6 bg-[#00F3FF] text-stone-900 py-3 rounded-xl font-black text-sm uppercase tracking-widest hover:brightness-110 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
-          >
-            <Save className="w-4 h-4" />
-            {isSaving ? '儲存中...' : '儲存配置'}
-          </button>
-        </div>
-      )}
 
       {/* Seating Map */}
-      <div className="flex-1 overflow-auto bg-stone-100/50 rounded-[2.5rem] border border-stone-200 p-8 min-h-[500px]">
-        <div
-          className="grid gap-8 justify-center"
-          style={{
-            gridTemplateColumns: `repeat(${columns}, minmax(300px, 1fr))`,
-            width: 'max-content',
-            margin: '0 auto'
+      <div className="flex-1 overflow-x-auto bg-stone-100/50 rounded-[2.5rem] border border-stone-200 p-6 md:p-8 no-scrollbar">
+        <div 
+          className="grid gap-6 md:gap-8"
+          style={{ 
+            gridAutoFlow: 'column',
+            gridTemplateRows: `repeat(${rows}, min-content)`,
+            gridAutoColumns: 'minmax(280px, 1fr)'
           }}
         >
           {Array.from({ length: columns * rows }).map((_, i) => renderUnit(i))}

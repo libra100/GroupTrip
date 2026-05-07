@@ -402,7 +402,7 @@ export default function ItineraryPlanner({
                     return `D${dayNum}`;
                   })()}
                 </span>
-                <span className="text-lg font-black tracking-tight">{safeFormat(parseISO(dateStr), 'yyyy/MM/dd')}</span>
+                <span className="text-lg font-black tracking-tight">{safeFormat(parseISO(dateStr), 'MM/dd')}</span>
                 <div className={cn(
                   "mt-1 px-2 py-0.5 rounded-full text-[10px] font-bold transition-all",
                   activeDate === dateStr 
@@ -425,7 +425,7 @@ export default function ItineraryPlanner({
             <div className="flex items-center gap-4">
               <div className="h-px flex-1 bg-stone-200" />
               <h3 className="text-sm font-bold uppercase tracking-[0.2em] text-stone-400">
-                {safeFormat(parseISO(activeDate), 'yyyy/MM/dd (EEEE)')}
+                {safeFormat(parseISO(activeDate), 'MM/dd (EEEE)')}
               </h3>
               <div className="h-px flex-1 bg-stone-200" />
             </div>
@@ -592,7 +592,7 @@ export default function ItineraryPlanner({
           ) : (
             <div className="text-center py-20 text-stone-400 bg-white border border-stone-200 rounded-3xl shadow-sm border-dashed">
               <Calendar className="w-12 h-12 mx-auto mb-4 opacity-20" />
-              <p className="font-bold text-stone-500">{safeFormat(parseISO(activeDate), 'yyyy/MM/dd')} 尚未安排行程</p>
+              <p className="font-bold text-stone-500">{safeFormat(parseISO(activeDate), 'MM/dd')} 尚未安排行程</p>
             </div>
           )}
         </div>

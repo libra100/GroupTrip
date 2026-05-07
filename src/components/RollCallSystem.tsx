@@ -15,7 +15,9 @@ import {
   Copy,
   Check,
   RotateCcw,
-  Layout
+  Layout,
+  Wand2,
+  Trash2
 } from 'lucide-react';
 import { collection, addDoc, updateDoc, doc, Timestamp, setDoc, onSnapshot } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
@@ -189,11 +191,15 @@ export default function RollCallSystem({
 
   const [resetConfirmId, setResetConfirmId] = useState<string | null>(null);
   const [resetSuccessId, setResetSuccessId] = useState<string | null>(null);
+  const [seatingClearConfirmId, setSeatingClearConfirmId] = useState<string | null>(null);
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
     if (resetConfirmId) {
       timer = setTimeout(() => setResetConfirmId(null), 3000);
+    }
+    if (seatingClearConfirmId) {
+      timer = setTimeout(() => setSeatingClearConfirmId(null), 3000);
     }
     return () => {
       if (timer) clearTimeout(timer);
@@ -221,6 +227,79 @@ export default function RollCallSystem({
     } catch (error) {
       console.error("Reset Error:", error);
       handleFirestoreError(error, OperationType.UPDATE, `rollcalls/${rollCallId}`);
+    }
+  };
+
+  const autoAllocateSeating = async () => {
+    if (!currentItinerary) return;
+    
+    console.log('Starting autoAllocateSeating for:', currentItinerary.title, 'ID:', currentItinerary.id);
+    
+    // 1. Get all participants
+    const participants = members.filter(m => {
+      if (currentItinerary.isMain) {
+        return !currentItinerary.excludedMemberIds?.includes(m.id);
+      }
+      return currentItinerary.assignedMemberIds?.includes(m.id);
+    });
+
+    console.log('Found participants:', participants.length);
+
+    // 2. Sort participants: Priority: Dietary habits, then GroupId (Family)
+    const sortedParticipants = [...participants].sort((a, b) => {
+      const isVegA = a.dietaryHabits?.includes('素') ? 0 : 1;
+      const isVegB = b.dietaryHabits?.includes('素') ? 0 : 1;
+      if (isVegA !== isVegB) return isVegA - isVegB;
+
+      const gA = a.groupId || 'zzzz';
+      const gB = b.groupId || 'zzzz';
+      return gA.localeCompare(gB);
+    });
+
+    // 3. Fill seats unit by unit
+    const columns = currentItinerary.seatingConfig?.columns || 5;
+    const rows = currentItinerary.seatingConfig?.rows || 2;
+    const newAssignments: Record<string, string> = {};
+    let memberIdx = 0;
+    
+    console.log(`Allocating for ${columns}x${rows} tables...`);
+
+    for (let u = 0; u < columns * rows && memberIdx < sortedParticipants.length; u++) {
+      for (let s = 0; s < 12 && memberIdx < sortedParticipants.length; s++) {
+        newAssignments[`${u}_${s}`] = sortedParticipants[memberIdx].id;
+        memberIdx++;
+      }
+    }
+
+    console.log('New assignments count:', Object.keys(newAssignments).length);
+
+    try {
+      await updateDoc(doc(db, 'itineraries', currentItinerary.id), {
+        seatingAssignments: newAssignments
+      });
+      console.log('Successfully updated seatingAssignments in Firestore');
+    } catch (error) {
+      console.error('Error updating seatingAssignments:', error);
+      handleFirestoreError(error, OperationType.UPDATE, `itineraries/${currentItinerary.id}`);
+    }
+  };
+
+  const clearAllSeating = async () => {
+    if (!currentItinerary) return;
+    
+    if (seatingClearConfirmId !== currentItinerary.id) {
+      setSeatingClearConfirmId(currentItinerary.id);
+      return;
+    }
+    
+    try {
+      const itRef = doc(db, 'itineraries', currentItinerary.id);
+      await updateDoc(itRef, {
+        seatingAssignments: {}
+      });
+      setSeatingClearConfirmId(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `itineraries/${currentItinerary.id}`);
     }
   };
 
@@ -352,7 +431,7 @@ export default function RollCallSystem({
             "lg:block",
             isItineraryListOpen ? "block" : "hidden"
           )}>
-            <h3 className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-4">{activeDate.replace(/-/g, '/')} 行程與脫隊清單</h3>
+            <h3 className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-4">{activeDate.split('-').slice(1).join('/')} 行程與脫隊清單</h3>
             <div className="space-y-4 px-1 py-1">
               {activeDayItineraries.length > 0 ? (
                 activeDayItineraries.map(it => (
@@ -418,9 +497,6 @@ export default function RollCallSystem({
                 <div className="bg-white border border-stone-200 rounded-[2rem] p-4 sm:p-6 shadow-sm flex flex-wrap items-center gap-y-4 gap-x-6">
                   {/* Title Section */}
                   <div className="flex items-center gap-4 min-w-0 xl:flex-1">
-                    <div className="bg-stone-900 p-3 rounded-2xl flex-shrink-0 text-white shadow-lg">
-                      <UserCheck className="w-5 h-5" />
-                    </div>
                     <div className="min-w-0">
                       <h4 className="font-serif text-lg font-black text-stone-900 leading-tight truncate">{currentItinerary?.title}</h4>
                       <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest leading-none mt-1">
@@ -431,22 +507,56 @@ export default function RollCallSystem({
                     </div>
                   </div>
 
-                  {/* Search Section - Hidden on Mobile */}
-                  <div className="hidden xl:block relative xl:max-w-[180px]">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
-                    <input 
-                      type="text" 
-                      placeholder="搜尋姓名..." 
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="w-full pl-11 pr-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#00F3FF]/30 transition-all text-sm font-bold text-stone-900"
-                    />
+                  {/* Search / Seating Actions Section */}
+                  <div className="flex-1 xl:max-w-[320px]">
+                    {viewMode === 'list' ? (
+                      <div className="relative hidden xl:block">
+                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
+                        <input 
+                          type="text" 
+                          placeholder="搜尋姓名..." 
+                          value={searchTerm}
+                          onChange={(e) => setSearchTerm(e.target.value)}
+                          className="w-full pl-11 pr-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#00F3FF]/30 transition-all text-sm font-bold text-stone-900"
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 bg-stone-50 p-1.5 rounded-2xl border border-stone-100 animate-in fade-in slide-in-from-right-4 duration-500">
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            autoAllocateSeating();
+                          }}
+                          className="flex-1 flex flex-row items-center justify-center gap-2 px-6 py-2 bg-stone-900 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-stone-800 transition-all active:scale-95 shadow-sm whitespace-nowrap"
+                        >
+                          <Wand2 className="w-3.5 h-3.5 text-[#00F3FF]" />
+                          <span>自動</span>
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            clearAllSeating();
+                          }}
+                          className={cn(
+                            "flex-1 flex flex-row items-center justify-center gap-2 px-6 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all active:scale-95 whitespace-nowrap",
+                            seatingClearConfirmId === currentItinerary?.id
+                              ? "bg-rose-500 text-white shadow-lg shadow-rose-200"
+                              : "bg-white text-rose-500 border border-rose-100 hover:bg-rose-50 shadow-sm"
+                          )}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>{seatingClearConfirmId === currentItinerary?.id ? "確認?" : "清除"}</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {/* Stats & Actions Section */}
                   <div className="flex flex-row items-center gap-4 shrink-0 ml-auto">
                     <div className="flex flex-row items-center gap-3 sm:gap-4 bg-stone-50 p-2 sm:p-3 rounded-2xl border border-stone-100 w-auto justify-center">
-                      <div className="flex flex-col items-center px-1 sm:px-2">
+                      <div className="flex flex-col items-center px-1 sm:px-2 relative group/stats">
                         <span className="text-[8px] font-black text-stone-400 uppercase tracking-tighter">參與</span>
                         <span className="text-base font-black text-stone-900 leading-none mt-0.5">{currentItinerary ? getParticipantCount(currentItinerary) : 0}</span>
                       </div>
@@ -539,11 +649,27 @@ export default function RollCallSystem({
                         
                         const sortedMembers = [...filteredMembers].sort((a, b) => {
                           if (currentItinerary?.type !== 'dining') return 0;
+                          
+                          // Get seat assignments for dining sorting
+                          const assignments = currentItinerary.seatingAssignments || {};
+                          const seatA = Object.entries(assignments).find(([_, id]) => id === a.id)?.[0];
+                          const seatB = Object.entries(assignments).find(([_, id]) => id === b.id)?.[0];
+
+                          if (seatA && !seatB) return -1;
+                          if (!seatA && seatB) return 1;
+                          if (seatA && seatB) {
+                            const [unitA, indexA] = seatA.split('_').map(Number);
+                            const [unitB, indexB] = seatB.split('_').map(Number);
+                            if (unitA !== unitB) return unitA - unitB;
+                            return indexA - indexB;
+                          }
+
+                          // If neither has a seat, keep existing dietary sort or alphabetical
                           const aSpecial = !isMainstream(a.dietaryHabits);
                           const bSpecial = !isMainstream(b.dietaryHabits);
                           if (aSpecial && !bSpecial) return -1;
                           if (!aSpecial && bSpecial) return 1;
-                          return 0;
+                          return a.name.localeCompare(b.name, 'zh-Hant');
                         });
 
                         const renderMemberTile = (member: Member) => {

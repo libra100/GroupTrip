@@ -11,6 +11,7 @@ interface DashboardProps {
 }
 
 import { format } from 'date-fns';
+import { getMemberTripDayColor } from '../lib/utils';
 
 type TripType = 'total' | '9day' | '5day' | '3day' | 'other';
 
@@ -177,44 +178,35 @@ export default function Dashboard({ members, itineraries, rollCalls, groups }: D
                 placeholder="搜尋姓名、小組或標籤..." 
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-11 pr-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#00F3FF]/50 transition-all shadow-sm focus:border-[#00F3FF]"
+                className="w-full pl-11 pr-4 py-3 bg-stone-50 border border-stone-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#00F3FF]/50 transition-all shadow-sm focus:border-[#00F3FF] text-sm font-bold"
               />
             </div>
 
-            <div className="flex-1 overflow-y-auto space-y-2 pr-2 scrollbar-thin">
-              {filteredMembers.map((member) => (
-                <div key={member.id} className="p-4 rounded-2xl bg-stone-50 border border-stone-100 flex items-center justify-between hover:bg-stone-100/50 transition-colors">
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-full bg-white border border-stone-200 flex items-center justify-center text-sm font-bold text-stone-600 shadow-sm">
-                      {member.name.charAt(0)}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-stone-900">{member.name}</span>
-                        {member.isLeader && (
-                          <span className="flex items-center gap-1 px-1.5 py-0.5 bg-amber-50 text-amber-600 border border-amber-200 rounded text-[10px] font-bold">
-                            <Crown className="w-2.5 h-2.5" />
-                            組長
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-xs text-stone-400 mt-0.5">
-                        {groups.find(g => g.id === member.groupId)?.name || '未分組'}
+            <div className="flex-1 overflow-y-auto pr-2 scrollbar-thin">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 p-1">
+                {filteredMembers.map((member) => (
+                  <div key={member.id} className="relative group">
+                    <div className={cn(
+                      "flex items-center rounded-xl border-2 transition-all shadow-sm overflow-hidden bg-white h-full min-h-[56px]",
+                      getMemberTripDayColor(member.tripDays, false)
+                    )}>
+                      <div className="flex-1 px-3 py-3 text-xs font-black text-left leading-tight break-words flex flex-col justify-center">
+                        <div className="flex items-center gap-1">
+                          <span className="truncate">{member.name}</span>
+                          {member.isLeader && <Crown className="w-2.5 h-2.5 flex-shrink-0" />}
+                        </div>
+                        <span className="text-[8px] opacity-60 font-bold uppercase tracking-tighter mt-0.5">
+                          {groups.find(g => g.id === member.groupId)?.name || '未分組'}
+                        </span>
                       </div>
                     </div>
                   </div>
-                  <div className="flex flex-wrap gap-1 justify-end max-w-[200px]">
-                    {member.tags?.map((tag, idx) => (
-                      <span key={idx} className="px-2 py-0.5 bg-white border border-stone-200 rounded-lg text-[10px] font-medium text-stone-500 shadow-sm">
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
               {filteredMembers.length === 0 && (
-                <div className="text-center py-12 text-stone-400">
-                  找不到符合條件的服務員。
+                <div className="text-center py-20 text-stone-400 bg-stone-50 rounded-3xl border border-dashed border-stone-200">
+                  <Users className="w-12 h-12 mx-auto mb-4 opacity-20" />
+                  <p className="font-bold">找不到符合條件的服務員</p>
                 </div>
               )}
             </div>
