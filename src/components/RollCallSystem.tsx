@@ -187,38 +187,37 @@ export default function RollCallSystem({
     setTimeout(() => setCopySuccess(false), 2000);
   };
 
-  const [resetSuccess, setResetSuccess] = useState(false);
+  const [resetConfirmId, setResetConfirmId] = useState<string | null>(null);
+  const [resetSuccessId, setResetSuccessId] = useState<string | null>(null);
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
-    if (showResetConfirm) {
-      timer = setTimeout(() => setShowResetConfirm(false), 3000);
+    if (resetConfirmId) {
+      timer = setTimeout(() => setResetConfirmId(null), 3000);
     }
     return () => {
       if (timer) clearTimeout(timer);
     };
-  }, [showResetConfirm]);
+  }, [resetConfirmId]);
 
-  const handleResetRollCall = async (e: React.MouseEvent) => {
+  const handleResetRollCall = async (itineraryId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!selectedItineraryId) return;
-
-    if (!showResetConfirm) {
-      setShowResetConfirm(true);
+    if (resetConfirmId !== itineraryId) {
+      setResetConfirmId(itineraryId);
       return;
     }
 
-    const rollCallId = (latestRollCall?.id || `rc_${selectedItineraryId}`).replace(/\//g, '_');
+    const rollCallId = `rc_${itineraryId}`.replace(/\//g, '_');
     try {
       await setDoc(doc(db, 'rollcalls', rollCallId), {
-        itineraryId: selectedItineraryId,
+        itineraryId: itineraryId,
         statusMap: {},
         timestamp: Timestamp.now()
       }, { merge: true });
       
-      setShowResetConfirm(false);
-      setResetSuccess(true);
-      setTimeout(() => setResetSuccess(false), 2000);
+      setResetConfirmId(null);
+      setResetSuccessId(itineraryId);
+      setTimeout(() => setResetSuccessId(null), 2000);
     } catch (error) {
       console.error("Reset Error:", error);
       handleFirestoreError(error, OperationType.UPDATE, `rollcalls/${rollCallId}`);
@@ -357,15 +356,16 @@ export default function RollCallSystem({
             <div className="space-y-4 px-1 py-1">
               {activeDayItineraries.length > 0 ? (
                 activeDayItineraries.map(it => (
-                  <button
+                  <div
                     key={it.id}
                     onClick={() => {
                       setSelectedItineraryId(selectedItineraryId === it.id ? '' : it.id);
                       setIsItineraryListOpen(false);
-                      setShowResetConfirm(false);
+                      setResetConfirmId(null);
                     }}
+                    role="button"
                     className={cn(
-                      "w-full text-left p-4 rounded-2xl border transition-all group",
+                      "w-full text-left p-4 rounded-2xl border transition-all group cursor-pointer",
                       selectedItineraryId === it.id 
                         ? "bg-stone-900 text-white border-stone-900 shadow-md scale-[1.02]" 
                         : "bg-white text-stone-600 border-stone-100 hover:border-stone-200 hover:bg-stone-50"
@@ -375,8 +375,23 @@ export default function RollCallSystem({
                       <div className="text-[10px] font-bold opacity-60">
                         {it.startTime && format(it.startTime instanceof Timestamp ? it.startTime.toDate() : new Date(it.startTime), 'HH:mm')}
                       </div>
-                      <div className="flex items-center gap-1">
-                        <div className="px-1.5 py-0.5 bg-stone-100/50 text-stone-500 rounded text-[8px] font-bold">
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={(e) => handleResetRollCall(it.id, e)}
+                          title="重設此行程點名"
+                          className={cn(
+                            "p-1.5 rounded-lg transition-all",
+                            resetConfirmId === it.id ? "bg-rose-500 text-white shadow-sm" : 
+                            resetSuccessId === it.id ? "bg-emerald-500 text-white shadow-sm" :
+                            selectedItineraryId === it.id ? "bg-white/10 text-white/60 hover:bg-white/20" : "bg-stone-100 text-stone-400 hover:bg-stone-200"
+                          )}
+                        >
+                          <RotateCcw className={cn("w-3 h-3", resetConfirmId === it.id && "animate-spin")} />
+                        </button>
+                        <div className={cn(
+                          "px-1.5 py-0.5 rounded text-[8px] font-bold",
+                          selectedItineraryId === it.id ? "bg-white/10 text-white" : "bg-stone-100/50 text-stone-500"
+                        )}>
                           {getParticipantCount(it)}人
                         </div>
                         {!it.isMain && (
@@ -385,7 +400,7 @@ export default function RollCallSystem({
                       </div>
                     </div>
                     <div className="font-medium text-sm line-clamp-2">{it.title}</div>
-                  </button>
+                  </div>
                 ))
               ) : (
                 <div className="text-center py-10 opacity-30">
@@ -409,7 +424,9 @@ export default function RollCallSystem({
                     <div className="min-w-0">
                       <h4 className="font-serif text-lg font-black text-stone-900 leading-tight truncate">{currentItinerary?.title}</h4>
                       <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest leading-none mt-1">
-                        {latestRollCall?.timestamp ? `最後更新: ${safeFormat(latestRollCall.timestamp instanceof Timestamp ? latestRollCall.timestamp.toDate() : latestRollCall.timestamp, 'HH:mm:ss')}` : '尚未開始點名'}
+                        {latestRollCall?.timestamp && Object.keys(latestRollCall.statusMap || {}).length > 0 
+                          ? `最後更新: ${safeFormat(latestRollCall.timestamp instanceof Timestamp ? latestRollCall.timestamp.toDate() : latestRollCall.timestamp, 'HH:mm:ss')}` 
+                          : '尚未開始點名'}
                       </p>
                     </div>
                   </div>
@@ -471,21 +488,6 @@ export default function RollCallSystem({
                       >
                         {copySuccess ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
                         {copySuccess ? '已複製' : '複製'}
-                      </button>
-
-                      <button 
-                        onClick={handleResetRollCall}
-                        disabled={!selectedItineraryId}
-                        className={cn(
-                          "flex-1 sm:flex-none px-3 py-3 rounded-2xl border text-[9px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-1.5",
-                          resetSuccess ? "bg-emerald-500 text-white border-emerald-600 shadow-md" : 
-                          showResetConfirm ? "bg-rose-500 text-white border-rose-600 animate-pulse shadow-lg" : 
-                          "bg-white text-rose-500 border-stone-200 hover:bg-rose-50",
-                          "disabled:opacity-30"
-                        )}
-                      >
-                        {resetSuccess ? <Check className="w-3 h-3" /> : <RotateCcw className={cn("w-3 h-3", showResetConfirm && "animate-spin")} />}
-                        {resetSuccess ? '已重設' : showResetConfirm ? '確定？' : '重設'}
                       </button>
                     </div>
                   </div>
