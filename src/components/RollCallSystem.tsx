@@ -17,7 +17,9 @@ import {
   RotateCcw,
   Layout,
   Wand2,
-  Trash2
+  Trash2,
+  QrCode,
+  ScanLine
 } from 'lucide-react';
 import { collection, addDoc, updateDoc, doc, Timestamp, setDoc, onSnapshot } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
@@ -25,6 +27,10 @@ import { format, parseISO, addDays, differenceInDays } from 'date-fns';
 import { cn } from '../lib/utils';
 import DailyAbsenceManager from './DailyAbsenceManager';
 import TableSeating from './TableSeating';
+import QRCodeDisplay from './QRCodeDisplay';
+import QRScanner from './QRScanner';
+import { auth } from '../firebase';
+
 
 const safeFormat = (date: Date | null | number | undefined, formatStr: string) => {
   if (!date) return '';
@@ -55,6 +61,14 @@ export default function RollCallSystem({
   const [isItineraryListOpen, setIsItineraryListOpen] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'seating'>('list');
+  const [activeTab, setActiveTab] = useState<'manual' | 'showQR' | 'scanQR'>('manual');
+
+  const isLeader = useMemo(() => {
+    const currentUid = auth.currentUser?.uid;
+    if (!currentUid) return false;
+    const currentMember = members.find(m => m.id === currentUid);
+    return currentMember?.isLeader || false;
+  }, [members, auth.currentUser?.uid]);
 
   // Daily absences are now derived from tripSettings
   const dailyAbsenceIds = useMemo(() => {
@@ -629,6 +643,56 @@ export default function RollCallSystem({
                     />
                   ) : (
                   <div className="bg-white border border-stone-200 rounded-3xl shadow-sm overflow-hidden flex-1 flex flex-col">
+                    <div className="flex border-b border-stone-200 flex-shrink-0">
+                      <button
+                        onClick={() => setActiveTab('manual')}
+                        className={cn(
+                          "flex-1 py-4 text-sm font-medium transition-colors border-b-2 flex items-center justify-center gap-2",
+                          activeTab === 'manual' ? "border-stone-900 text-stone-900" : "border-transparent text-stone-500 hover:text-stone-700"
+                        )}
+                      >
+                        <UserCheck className="w-4 h-4" />
+                        手動點名
+                      </button>
+                      <button
+                        onClick={() => setActiveTab('showQR')}
+                        className={cn(
+                          "flex-1 py-4 text-sm font-medium transition-colors border-b-2 flex items-center justify-center gap-2",
+                          activeTab === 'showQR' ? "border-stone-900 text-stone-900" : "border-transparent text-stone-500 hover:text-stone-700"
+                        )}
+                      >
+                        <QrCode className="w-4 h-4" />
+                        出示QR Code
+                      </button>
+                      {isLeader && (
+                        <button
+                          onClick={() => setActiveTab('scanQR')}
+                          className={cn(
+                            "flex-1 py-4 text-sm font-medium transition-colors border-b-2 flex items-center justify-center gap-2",
+                            activeTab === 'scanQR' ? "border-stone-900 text-stone-900" : "border-transparent text-stone-500 hover:text-stone-700"
+                          )}
+                        >
+                          <ScanLine className="w-4 h-4" />
+                          掃描QR Code
+                        </button>
+                      )}
+                    </div>
+
+                    {activeTab === 'showQR' && (
+                      <div className="flex-1 overflow-y-auto flex items-center justify-center p-6">
+                        <QRCodeDisplay memberId={auth.currentUser?.uid} />
+                      </div>
+                    )}
+
+                    {activeTab === 'scanQR' && selectedItineraryId && (
+                      <div className="flex-1 overflow-y-auto flex flex-col items-center justify-center p-6">
+                        <h2 className="text-xl font-bold mb-4">掃描成員 QR Code</h2>
+                        <p className="text-stone-500 mb-6">掃描後自動記錄為「已出席」</p>
+                        <QRScanner itineraryId={selectedItineraryId} />
+                      </div>
+                    )}
+
+                    <div className={cn("flex-1 flex flex-col min-h-0", activeTab !== 'manual' && 'hidden')}>
                     {/* Dining Summary Section */}
                     {currentItinerary?.type === 'dining' && (
                       <div className="bg-amber-50/50 border-b border-stone-100 p-4 sm:p-6">
@@ -919,6 +983,7 @@ export default function RollCallSystem({
                           找不到相關團員
                         </div>
                       )}
+                    </div>
                   </div>
                   )}
                 </div>
