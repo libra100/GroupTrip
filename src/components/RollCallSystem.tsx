@@ -427,11 +427,18 @@ export default function RollCallSystem({
         <div className="flex-1 flex flex-col lg:flex-row gap-6 min-h-0">
           {/* Sidebar: Day's Itineraries */}
           <div className={cn(
-            "w-full lg:w-72 bg-white border border-stone-200 rounded-3xl p-6 shadow-sm overflow-y-auto min-h-[200px] lg:min-h-0",
-            "lg:block",
-            isItineraryListOpen ? "block" : "hidden"
+            "fixed inset-y-0 left-0 z-50 w-[85%] max-w-[320px] bg-white border-r border-stone-200 p-6 shadow-2xl overflow-y-auto transition-transform duration-300 lg:static lg:translate-x-0 lg:w-72 lg:rounded-3xl lg:border lg:p-6 lg:shadow-sm lg:block lg:z-0",
+            isItineraryListOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
           )}>
-            <h3 className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-4">{activeDate.split('-').slice(1).join('/')} 行程與脫隊清單</h3>
+            <div className="flex items-center justify-between mb-4 lg:mb-6">
+              <h3 className="text-xs font-black uppercase tracking-wider text-stone-400">行程與脫隊清單</h3>
+              <button 
+                onClick={() => setIsItineraryListOpen(false)}
+                className="lg:hidden p-2 hover:bg-stone-100 rounded-full transition-colors text-stone-400"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
             <div className="space-y-4 px-1 py-1">
               {activeDayItineraries.length > 0 ? (
                 activeDayItineraries.map(it => (
@@ -489,6 +496,14 @@ export default function RollCallSystem({
               )}
             </div>
           </div>
+
+          {/* Mobile Overlay for Sidebar */}
+          {isItineraryListOpen && (
+            <div 
+              onClick={() => setIsItineraryListOpen(false)}
+              className="fixed inset-0 bg-stone-900/40 backdrop-blur-sm z-40 lg:hidden"
+            />
+          )}
 
           <div className="flex-1 flex flex-col gap-6 min-h-0 overflow-hidden">
             {selectedItineraryId ? (

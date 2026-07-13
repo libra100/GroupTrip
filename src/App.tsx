@@ -89,8 +89,8 @@ export default function App() {
         <div className="h-full flex flex-col p-6">
           <div className="flex items-center justify-between mb-10">
             <h1 className="text-xl font-serif font-medium">GroupTrip Pro</h1>
-            <button onClick={() => setIsSidebarOpen(false)} className="xl:hidden">
-              <X className="w-5 h-5" />
+            <button onClick={() => setIsSidebarOpen(false)} className="xl:hidden p-2 hover:bg-stone-100 rounded-full transition-colors">
+              <X className="w-5 h-5 text-stone-400 hover:text-stone-900" />
             </button>
           </div>
 
@@ -98,11 +98,14 @@ export default function App() {
             {navItems.map((item) => (
               <button
                 key={item.id}
-                onClick={() => setCurrentView(item.id as View)}
+                onClick={() => {
+                  setCurrentView(item.id as View);
+                  if (window.innerWidth < 1280) setIsSidebarOpen(false);
+                }}
                 className={cn(
                   "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors",
                   currentView === item.id 
-                    ? "bg-stone-900 text-white" 
+                    ? "bg-stone-900 text-white shadow-lg" 
                     : "text-stone-600 hover:bg-stone-100"
                 )}
               >
@@ -113,6 +116,14 @@ export default function App() {
           </nav>
         </div>
       </aside>
+
+      {/* Mobile Sidebar Overlay */}
+      {isSidebarOpen && (
+        <div 
+          onClick={() => setIsSidebarOpen(false)}
+          className="fixed inset-0 bg-stone-900/40 backdrop-blur-sm z-40 xl:hidden transition-opacity"
+        />
+      )}
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">

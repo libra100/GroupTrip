@@ -249,8 +249,12 @@ export default function TableSeating({
 
       {/* Seat Detail Dialog */}
       {selectedSeat && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm">
-          <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div 
+            onClick={() => setSelectedSeat(null)}
+            className="absolute inset-0 bg-stone-900/40 backdrop-blur-sm"
+          />
+          <div className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95">
             <div className="p-8">
               <div className="flex items-center justify-between mb-8">
                 <div className="flex items-center gap-3">

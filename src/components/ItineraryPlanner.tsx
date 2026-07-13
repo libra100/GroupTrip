@@ -602,8 +602,12 @@ export default function ItineraryPlanner({
       {/* (Adding/Editing Logic was already functional, just needed the lists back on timeline) */}
 
       {(isAdding || editing) && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm">
-          <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} className="bg-white w-full max-w-4xl rounded-[2.5rem] shadow-2xl max-h-[90vh] overflow-hidden flex flex-col relative">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div 
+            onClick={() => { setIsAdding(false); setEditing(null); setSelectedMembers([]); setMemberSearchTerm(''); }}
+            className="absolute inset-0 bg-stone-900/40 backdrop-blur-sm"
+          />
+          <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} className="relative bg-white w-full max-w-4xl rounded-[2.5rem] shadow-2xl max-h-[90vh] overflow-hidden flex flex-col">
             <div className="px-8 pt-8 pb-4 flex items-center justify-between border-b border-stone-50">
               <div className="flex-1 min-w-0 mr-4">
                 <div className="flex items-center gap-3">
