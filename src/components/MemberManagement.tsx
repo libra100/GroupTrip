@@ -17,7 +17,8 @@ import {
   Calendar,
   Square,
   CheckSquare,
-  Plane
+  Plane,
+  QrCode
 } from 'lucide-react';
 import { 
   collection, 
@@ -29,6 +30,9 @@ import {
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import * as XLSX from 'xlsx';
+import { QRCodeSVG } from 'qrcode.react';
+import JSZip from 'jszip';
+import QRCodePackage from 'qrcode';
 import { cn, getMemberTripDayColor } from '../lib/utils';
 import PersonalItineraryModal from './PersonalItineraryModal';
 
@@ -51,7 +55,9 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [isDeletingAll, setIsDeletingAll] = useState(false);
   const [viewingItineraryMember, setViewingItineraryMember] = useState<Member | null>(null);
+  const [viewingQrCodeMember, setViewingQrCodeMember] = useState<Member | null>(null);
   const [isFlightExpanded, setIsFlightExpanded] = useState(false);
+  const [isDownloadingAllQr, setIsDownloadingAllQr] = useState(false);
 
   const [newMember, setNewMember] = useState<Partial<Member>>({
     name: '',
@@ -288,6 +294,59 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
     e.target.value = ''; // Reset input to allow re-importing identical files
   };
 
+  const handleDownloadQrCode = (member: Member) => {
+    const svg = document.getElementById(`qr-code-${member.id}`);
+    if (!svg) return;
+    const svgData = new XMLSerializer().serializeToString(svg);
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    const img = new Image();
+    img.onload = () => {
+      canvas.width = img.width;
+      canvas.height = img.height;
+      if (ctx) {
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0);
+      }
+      const pngFile = canvas.toDataURL("image/png");
+      const downloadLink = document.createElement("a");
+      downloadLink.download = `${member.name}_QRCode.png`;
+      downloadLink.href = pngFile;
+      downloadLink.click();
+    };
+    img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgData)));
+  };
+
+  const handleDownloadAllQrCodes = async () => {
+    if (members.length === 0) return;
+    setIsDownloadingAllQr(true);
+    try {
+      const zip = new JSZip();
+      for (const member of members) {
+        const dataUrl = await QRCodePackage.toDataURL(member.id, { 
+          width: 400, 
+          margin: 2,
+          color: { dark: '#000000', light: '#ffffff' }
+        });
+        const base64Data = dataUrl.replace(/^data:image\/png;base64,/, "");
+        zip.file(`${member.name}_QRCode.png`, base64Data, { base64: true });
+      }
+      const content = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(content);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "所有團員_QRCodes.zip";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Failed to generate QR Codes zip", error);
+      alert("產生 QR Code 壓縮檔時發生錯誤！");
+    } finally {
+      setIsDownloadingAllQr(false);
+    }
+  };
+
   const filteredMembers = members.filter(m => {
     const matchesSearch = 
       m.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -342,6 +401,18 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
           >
             <Users className="w-4 h-4" />
             管理組別
+          </button>
+          <button
+            onClick={handleDownloadAllQrCodes}
+            disabled={isDownloadingAllQr || members.length === 0}
+            className="flex items-center gap-2 bg-white border border-stone-200 px-4 py-2 rounded-full text-sm font-medium hover:bg-stone-50 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isDownloadingAllQr ? (
+              <span className="w-4 h-4 border-2 border-stone-400 border-t-stone-900 rounded-full animate-spin" />
+            ) : (
+              <Download className="w-4 h-4" />
+            )}
+            下載所有 QR Code
           </button>
           <label className="flex items-center gap-2 bg-white border border-stone-200 px-4 py-2 rounded-full text-sm font-medium cursor-pointer hover:bg-stone-50 transition-colors shadow-sm">
             <Upload className="w-4 h-4" />
@@ -542,12 +613,18 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
                       ) : (
                         <div className="flex items-center justify-end gap-1">
                           <button 
+                            onClick={() => setViewingQrCodeMember(member)}
+                            className="p-2 text-stone-400 hover:text-stone-900 hover:bg-stone-100 rounded-lg transition-colors flex items-center gap-1.5"
+                            title="顯示專屬 QR Code"
+                          >
+                            <QrCode className="w-4 h-4" />
+                          </button>
+                          <button 
                             onClick={() => setViewingItineraryMember(member)}
                             className="p-2 text-stone-400 hover:text-stone-900 hover:bg-stone-100 rounded-lg transition-colors flex items-center gap-1.5"
                             title="查看個人行程"
                           >
                             <Calendar className="w-4 h-4" />
-                            <span className="text-[10px] font-bold">個人行程</span>
                           </button>
                           <button 
                             onClick={() => setEditingMember(member)}
@@ -858,7 +935,47 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
         </div>
       )}
 
-      {/* Manage Groups Modal */}
+      {/* QR Code Modal */}
+      {viewingQrCodeMember && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div 
+            onClick={() => setViewingQrCodeMember(null)}
+            className="absolute inset-0 bg-stone-900/40 backdrop-blur-sm"
+          />
+          <div className="relative bg-white w-full max-w-sm rounded-3xl p-8 shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col items-center">
+            <div className="w-full flex items-center justify-between mb-6">
+              <h3 className="text-xl font-serif font-black">{viewingQrCodeMember.name} 的專屬條碼</h3>
+              <button 
+                onClick={() => setViewingQrCodeMember(null)}
+                className="p-2 hover:bg-stone-100 rounded-full transition-colors text-stone-400"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="bg-white p-4 rounded-2xl shadow-sm border border-stone-100 mb-6 flex flex-col items-center">
+              <QRCodeSVG 
+                id={`qr-code-${viewingQrCodeMember.id}`}
+                value={viewingQrCodeMember.id} 
+                size={220}
+                level="H"
+                includeMargin={true}
+              />
+              <p className="mt-4 text-xs font-bold text-stone-400 tracking-wider">請將此條碼出示給領隊掃描</p>
+            </div>
+            
+            <button 
+              onClick={() => handleDownloadQrCode(viewingQrCodeMember)}
+              className="w-full flex items-center justify-center gap-2 bg-stone-900 text-white py-3 rounded-xl font-bold hover:bg-stone-800 transition-colors shadow-sm active:scale-95"
+            >
+              <Download className="w-5 h-5" />
+              下載 QR Code 圖片
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Personal Itinerary Modal */}
       {isManagingGroups && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm">
           <div className="bg-white w-full max-w-md rounded-3xl p-8 shadow-2xl">

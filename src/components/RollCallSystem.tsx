@@ -17,9 +17,11 @@ import {
   RotateCcw,
   Layout,
   Wand2,
-  Trash2
+  Trash2,
+  ScanLine
 } from 'lucide-react';
 import { collection, addDoc, updateDoc, doc, Timestamp, setDoc, onSnapshot } from 'firebase/firestore';
+import { Scanner } from '@yudiel/react-qr-scanner';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { format, parseISO, addDays, differenceInDays } from 'date-fns';
 import { cn } from '../lib/utils';
@@ -55,6 +57,8 @@ export default function RollCallSystem({
   const [isItineraryListOpen, setIsItineraryListOpen] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'seating'>('list');
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [scanResult, setScanResult] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
 
   // Daily absences are now derived from tripSettings
   const dailyAbsenceIds = useMemo(() => {
@@ -187,6 +191,23 @@ export default function RollCallSystem({
     navigator.clipboard.writeText(names);
     setCopySuccess(true);
     setTimeout(() => setCopySuccess(false), 2000);
+  };
+
+  const handleScan = (detectedCodes: any[]) => {
+    if (detectedCodes && detectedCodes.length > 0) {
+      const memberId = detectedCodes[0].rawValue;
+      if (!memberId) return;
+
+      const member = filteredMembers.find(m => m.id === memberId);
+      if (member) {
+        handleStatusChange(member.id, 'present');
+        setScanResult({ message: `✅ 已報到: ${member.name}`, type: 'success' });
+        setTimeout(() => setScanResult(null), 3000);
+      } else {
+        setScanResult({ message: `❌ 無效條碼或非此行程成員`, type: 'error' });
+        setTimeout(() => setScanResult(null), 3000);
+      }
+    }
   };
 
   const [resetConfirmId, setResetConfirmId] = useState<string | null>(null);
@@ -603,6 +624,13 @@ export default function RollCallSystem({
                           {viewMode === 'seating' ? '列表' : '桌位圖'}
                         </button>
                       )}
+                      <button
+                        onClick={() => setIsScannerOpen(true)}
+                        className="flex-1 sm:flex-none px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-1.5 bg-[#00F3FF] text-stone-900 shadow-md hover:brightness-110 active:scale-95"
+                      >
+                        <ScanLine className="w-4 h-4" />
+                        掃描
+                      </button>
                       <button 
                         onClick={handleCopyAllNames}
                         disabled={filteredMembers.length === 0}
@@ -937,6 +965,60 @@ export default function RollCallSystem({
           <Calendar className="w-16 h-16 mx-auto mb-6 text-stone-200" />
           <h3 className="text-xl font-serif text-stone-900 mb-2">尚未設定旅遊日期</h3>
           <p className="text-stone-500 max-w-sm mx-auto">請先到「行程規劃」頁面設定旅遊起始與結束日期。</p>
+        </div>
+      )}
+
+      {/* Scanner Modal */}
+      {isScannerOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-stone-900/90 backdrop-blur-md p-4 animate-in fade-in duration-200">
+          <div className="relative w-full max-w-md bg-white rounded-[2rem] overflow-hidden shadow-2xl flex flex-col h-[80vh] max-h-[700px]">
+            <div className="flex items-center justify-between p-6 border-b border-stone-100 shrink-0">
+              <h3 className="text-xl font-serif font-black text-stone-900">📷 掃描報到</h3>
+              <button 
+                onClick={() => setIsScannerOpen(false)}
+                className="p-2 bg-stone-100 hover:bg-stone-200 rounded-full transition-colors text-stone-500"
+              >
+                <XCircle className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="flex-1 relative bg-black overflow-hidden flex items-center justify-center">
+              <Scanner 
+                onScan={handleScan}
+                formats={['qr_code']}
+                components={{
+                  audio: true,
+                  onOff: true,
+                  torch: true,
+                  zoom: true,
+                  finder: true,
+                }}
+                styles={{
+                  container: { width: '100%', height: '100%' },
+                }}
+              />
+              
+              {/* Scan Result Overlay */}
+              {scanResult && (
+                <div className="absolute inset-x-4 top-4 z-10 animate-in slide-in-from-top-4 fade-in duration-300">
+                  <div className={cn(
+                    "px-4 py-3 rounded-2xl border-2 text-sm font-black text-center shadow-xl",
+                    scanResult.type === 'success' 
+                      ? "bg-emerald-500 text-white border-emerald-400" 
+                      : "bg-rose-500 text-white border-rose-400"
+                  )}>
+                    {scanResult.message}
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            <div className="p-6 bg-stone-50 shrink-0 text-center">
+              <p className="text-xs font-bold text-stone-400">
+                請將鏡頭對準團員的專屬 QR Code<br/>掃描成功後會自動完成報到，可連續掃描
+              </p>
+            </div>
+          </div>
         </div>
       )}
     </div>
