@@ -49,11 +49,11 @@ service cloud.firestore {
     // Helper Functions
     // ===============================================================
     function isAuthenticated() {
-      return true;
+      return request.auth != null;
     }
 
     function isOwner() {
-      return true;
+      return isAuthenticated() && request.auth.uid == resource.data.userId;
     }
 
     function hasRequiredFields(fields) {
@@ -99,27 +99,27 @@ service cloud.firestore {
     }
 
     match /members/{memberId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated();
     }
 
     match /groups/{groupId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated();
     }
 
     match /settings/{docId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated();
     }
 
     match /itineraries/{itineraryId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated();
     }
 
     match /rollcalls/{rollcallId} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated();
     }
     
     match /test/connection {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated();
     }
   }
 }
