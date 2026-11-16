@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { collection, addDoc, updateDoc, doc, Timestamp, setDoc, onSnapshot } from 'firebase/firestore';
 import { Scanner } from '@yudiel/react-qr-scanner';
-import { db, handleFirestoreError, OperationType } from '../firebase';
+import { tripDoc, handleFirestoreError, OperationType } from '../firebase';
 import { format, parseISO, addDays, differenceInDays } from 'date-fns';
 import { cn } from '../lib/utils';
 import DailyAbsenceManager from './DailyAbsenceManager';
@@ -146,11 +146,11 @@ export default function RollCallSystem({
     const rollCallId = `rc_${selectedItineraryId}`.replace(/\//g, '_');
     try {
       if (latestRollCall) {
-        await updateDoc(doc(db, 'rollcalls', rollCallId), {
+        await updateDoc(tripDoc('rollcalls', rollCallId), {
           [`statusMap.${memberId}`]: status
         });
       } else {
-        await setDoc(doc(db, 'rollcalls', rollCallId), {
+        await setDoc(tripDoc('rollcalls', rollCallId), {
           id: rollCallId,
           itineraryId: selectedItineraryId,
           timestamp: Timestamp.now(),
@@ -239,7 +239,7 @@ export default function RollCallSystem({
 
     const rollCallId = `rc_${itineraryId}`.replace(/\//g, '_');
     try {
-      await setDoc(doc(db, 'rollcalls', rollCallId), {
+      await setDoc(tripDoc('rollcalls', rollCallId), {
         itineraryId: itineraryId,
         statusMap: {},
         timestamp: Timestamp.now()
@@ -298,7 +298,7 @@ export default function RollCallSystem({
     console.log('New assignments count:', Object.keys(newAssignments).length);
 
     try {
-      await updateDoc(doc(db, 'itineraries', currentItinerary.id), {
+      await updateDoc(tripDoc('itineraries', currentItinerary.id), {
         seatingAssignments: newAssignments
       });
       console.log('Successfully updated seatingAssignments in Firestore');
@@ -317,7 +317,7 @@ export default function RollCallSystem({
     }
     
     try {
-      const itRef = doc(db, 'itineraries', currentItinerary.id);
+      const itRef = tripDoc('itineraries', currentItinerary.id);
       await updateDoc(itRef, {
         seatingAssignments: {}
       });

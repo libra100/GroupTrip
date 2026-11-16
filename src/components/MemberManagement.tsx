@@ -30,7 +30,7 @@ import {
   writeBatch,
   WriteBatch
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../firebase';
+import { db, tripCollection, tripDoc, handleFirestoreError, OperationType } from '../firebase';
 import * as XLSX from 'xlsx';
 import { QRCodeSVG } from 'qrcode.react';
 import JSZip from 'jszip';
@@ -198,7 +198,7 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
       );
       const sanitized = buildSanitizedMemberFields(newMember, processedTags, processedDays);
 
-      const docRef = await addDoc(collection(db, 'members'), {
+      const docRef = await addDoc(tripCollection('members'), {
         ...sanitized,
         id: Date.now().toString()
       });
@@ -221,7 +221,7 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
         editingMember.tripDays
       );
       const sanitized = buildSanitizedMemberFields(editingMember, processedTags, processedDays);
-      const memberRef = doc(db, 'members', editingMember.id);
+      const memberRef = tripDoc('members', editingMember.id);
       await updateDoc(memberRef, {
         ...sanitized,
         id: editingMember.id
@@ -235,7 +235,7 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
 
   const handleDeleteMember = async (id: string) => {
     try {
-      await deleteDoc(doc(db, 'members', id));
+      await deleteDoc(tripDoc('members', id));
       setSelectedMemberIds((prev) => prev.filter((mid) => mid !== id));
       setDeletingId(null);
     } catch (error) {
@@ -250,7 +250,7 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
       const idsToDelete = [...selectedMemberIds];
       await commitInChunks(
         idsToDelete.map((id) => (batch) => {
-          batch.delete(doc(db, 'members', id));
+          batch.delete(tripDoc('members', id));
         })
       );
       setSelectedMemberIds([]);
@@ -268,7 +268,7 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
       const blankIds = blankMembers.map((m) => m.id);
       await commitInChunks(
         blankIds.map((id) => (batch) => {
-          batch.delete(doc(db, 'members', id));
+          batch.delete(tripDoc('members', id));
         })
       );
       setSelectedMemberIds((prev) => prev.filter((id) => !blankIds.includes(id)));
@@ -299,7 +299,7 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
     const trimmedName = newGroupName.trim();
     if (!trimmedName) return;
     try {
-      const docRef = await addDoc(collection(db, 'groups'), {
+      const docRef = await addDoc(tripCollection('groups'), {
         name: trimmedName,
         id: Date.now().toString()
       });
@@ -314,7 +314,7 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
     e.preventDefault();
     if (!editingGroup || !editingGroup.name.trim()) return;
     try {
-      await updateDoc(doc(db, 'groups', editingGroup.id), { name: editingGroup.name.trim() });
+      await updateDoc(tripDoc('groups', editingGroup.id), { name: editingGroup.name.trim() });
       setEditingGroup(null);
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `groups/${editingGroup.id}`);
@@ -323,7 +323,7 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
 
   const handleDeleteGroup = async (id: string) => {
     try {
-      await deleteDoc(doc(db, 'groups', id));
+      await deleteDoc(tripDoc('groups', id));
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `groups/${id}`);
     }
@@ -331,7 +331,7 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
 
   const handleQuickGroupChange = async (memberId: string, newGroupId: string) => {
     try {
-      const memberRef = doc(db, 'members', memberId);
+      const memberRef = tripDoc('members', memberId);
       await updateDoc(memberRef, { groupId: newGroupId });
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `members/${memberId}`);
@@ -421,7 +421,7 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
 
         const { tags: processedTags, tripDays: processedDays } = processTagsForTripDays(rawTags, rawDays);
 
-        const newDocRef = doc(collection(db, 'members'));
+        const newDocRef = doc(tripCollection('members'));
         operations.push((batch) => {
           batch.set(newDocRef, {
             id: newDocRef.id,

@@ -78,6 +78,30 @@ service cloud.firestore {
     // Document: test/connection
     //   - Read-only connection test document for authenticated clients
     //
+    // Collection: trips
+    // Document ID: tripId
+    // Fields:
+    //   - id: string (optional, <= 128 chars)
+    //   - name: string (required, 1..120 chars)
+    //   - description: string | null (optional, <= 500 chars)
+    //   - startDate: string (required, 1..40 chars)
+    //   - endDate: string (required, 1..40 chars)
+    //   - ownerId: string (required, immutable, 1..128 chars)
+    //   - ownerEmail: string (required, immutable, 1..200 chars)
+    //   - ownerName: string | null (optional, <= 120 chars)
+    //   - memberUids: list (required, <= 500 items)
+    //   - collaboratorEmails: list (required, <= 500 items)
+    //   - inviteCode: string (required, 4..20 chars)
+    //   - createdAt: string (required, immutable, 1..40 chars)
+    //   - updatedAt: string | null (optional, <= 40 chars)
+    //
+    // Subcollections under /trips/{tripId}:
+    //   - /trips/{tripId}/members/{memberId} (same schema as root members)
+    //   - /trips/{tripId}/groups/{groupId} (same schema as root groups)
+    //   - /trips/{tripId}/settings/{docId} (same schema as root settings)
+    //   - /trips/{tripId}/itineraries/{itineraryId} (same schema as root itineraries)
+    //   - /trips/{tripId}/rollcalls/{rollcallId} (same schema as root rollcalls)
+    //
     // ===============================================================
 
     // ===============================================================
@@ -123,6 +147,42 @@ service cloud.firestore {
       return !(field in data) ||
              data[field] == null ||
              (data[field] is map && data[field].size() <= maxSize);
+    }
+
+    function isTripCollaboratorData(tripData) {
+      return ('ownerId' in tripData && request.auth.uid == tripData.ownerId) ||
+             ('memberUids' in tripData && tripData.memberUids is list && request.auth.uid in tripData.memberUids) ||
+             ('collaboratorEmails' in tripData &&
+              tripData.collaboratorEmails is list &&
+              'email' in request.auth.token &&
+              request.auth.token.email is string &&
+              (request.auth.token.email in tripData.collaboratorEmails ||
+               request.auth.token.email.lower() in tripData.collaboratorEmails));
+    }
+
+    function isTripDocCollaborator(tripDocSnap) {
+      return tripDocSnap != null && isTripCollaboratorData(tripDocSnap.data);
+    }
+
+    function isJoiningTrip(oldData, newData) {
+      return newData.ownerId == oldData.ownerId &&
+             newData.inviteCode == oldData.inviteCode &&
+             newData.diff(oldData).affectedKeys().hasOnly(['memberUids', 'collaboratorEmails', 'updatedAt']) &&
+             request.auth.uid in newData.memberUids &&
+             newData.memberUids.hasAll(oldData.memberUids) &&
+             newData.memberUids.size() <= oldData.memberUids.size() + 1 &&
+             (!newData.diff(oldData).affectedKeys().hasAny(['collaboratorEmails']) ||
+              (newData.collaboratorEmails.hasAll(oldData.collaboratorEmails) &&
+               newData.collaboratorEmails.size() <= oldData.collaboratorEmails.size() + 1 &&
+               'email' in request.auth.token &&
+               request.auth.token.email is string &&
+               (request.auth.token.email in newData.collaboratorEmails ||
+                request.auth.token.email.lower() in newData.collaboratorEmails)));
+    }
+
+    function canAccessTrip(tripId) {
+      return isAuthenticated() &&
+             isTripDocCollaborator(get(/databases/$(database)/documents/trips/$(tripId)));
     }
 
     // ===============================================================
@@ -230,6 +290,31 @@ service cloud.firestore {
              data.statusMap is map && data.statusMap.size() <= 1000;
     }
 
+    function isValidTrip(data) {
+      return hasOnlyAllowedFields(data, [
+               'id', 'name', 'description', 'startDate', 'endDate',
+               'ownerId', 'ownerEmail', 'ownerName', 'memberUids',
+               'collaboratorEmails', 'inviteCode', 'createdAt', 'updatedAt'
+             ]) &&
+             hasRequiredFields(data, [
+               'name', 'startDate', 'endDate', 'ownerId', 'ownerEmail',
+               'memberUids', 'collaboratorEmails', 'inviteCode', 'createdAt'
+             ]) &&
+             (!('id' in data) || (data.id is string && data.id.size() <= 128)) &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 120 &&
+             isValidOptionalString(data, 'description', 500) &&
+             data.startDate is string && data.startDate.size() > 0 && data.startDate.size() <= 40 &&
+             data.endDate is string && data.endDate.size() > 0 && data.endDate.size() <= 40 &&
+             data.ownerId is string && data.ownerId.size() > 0 && data.ownerId.size() <= 128 &&
+             data.ownerEmail is string && data.ownerEmail.size() > 0 && data.ownerEmail.size() <= 200 &&
+             isValidOptionalString(data, 'ownerName', 120) &&
+             data.memberUids is list && data.memberUids.size() <= 500 &&
+             data.collaboratorEmails is list && data.collaboratorEmails.size() <= 500 &&
+             data.inviteCode is string && data.inviteCode.size() >= 4 && data.inviteCode.size() <= 20 &&
+             data.createdAt is string && data.createdAt.size() > 0 && data.createdAt.size() <= 40 &&
+             isValidOptionalString(data, 'updatedAt', 40);
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -266,6 +351,49 @@ service cloud.firestore {
 
     match /test/connection {
       allow read: if isAuthenticated();
+    }
+
+    match /trips/{tripId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() &&
+                       isValidTrip(request.resource.data) &&
+                       request.resource.data.ownerId == request.auth.uid &&
+                       request.auth.uid in request.resource.data.memberUids;
+      allow update: if isAuthenticated() &&
+                       isValidTrip(request.resource.data) &&
+                       request.resource.data.ownerId == resource.data.ownerId &&
+                       request.resource.data.ownerEmail == resource.data.ownerEmail &&
+                       request.resource.data.createdAt == resource.data.createdAt &&
+                       (!('id' in resource.data) || request.resource.data.id == resource.data.id) &&
+                       (isTripCollaboratorData(resource.data) ||
+                        isJoiningTrip(resource.data, request.resource.data));
+      allow delete: if isAuthenticated() &&
+                       resource.data.ownerId == request.auth.uid;
+
+      match /members/{memberId} {
+        allow read, delete: if canAccessTrip(tripId);
+        allow create, update: if canAccessTrip(tripId) && isValidMember(request.resource.data);
+      }
+
+      match /groups/{groupId} {
+        allow read, delete: if canAccessTrip(tripId);
+        allow create, update: if canAccessTrip(tripId) && isValidGroup(request.resource.data);
+      }
+
+      match /settings/{docId} {
+        allow read, delete: if canAccessTrip(tripId);
+        allow create, update: if canAccessTrip(tripId) && isValidSettings(request.resource.data);
+      }
+
+      match /itineraries/{itineraryId} {
+        allow read, delete: if canAccessTrip(tripId);
+        allow create, update: if canAccessTrip(tripId) && isValidItinerary(request.resource.data);
+      }
+
+      match /rollcalls/{rollcallId} {
+        allow read, delete: if canAccessTrip(tripId);
+        allow create, update: if canAccessTrip(tripId) && isValidRollCall(request.resource.data);
+      }
     }
   }
 }

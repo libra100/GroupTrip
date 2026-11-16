@@ -1,11 +1,39 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { getFirestore, collection, doc } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
+
+export type TripSubcollection = 'members' | 'groups' | 'itineraries' | 'rollcalls' | 'settings';
+
+let currentActiveTripId: string | null = null;
+
+export function setActiveTripId(tripId: string | null) {
+  currentActiveTripId = tripId;
+}
+
+export function getActiveTripId(): string | null {
+  return currentActiveTripId;
+}
+
+export function tripCollection(subcollectionName: TripSubcollection, explicitTripId?: string) {
+  const tid = explicitTripId || currentActiveTripId;
+  if (!tid) {
+    throw new Error('尚未選擇行程 (No active trip selected)');
+  }
+  return collection(db, 'trips', tid, subcollectionName);
+}
+
+export function tripDoc(subcollectionName: TripSubcollection, docId: string, explicitTripId?: string) {
+  const tid = explicitTripId || currentActiveTripId;
+  if (!tid) {
+    throw new Error('尚未選擇行程 (No active trip selected)');
+  }
+  return doc(db, 'trips', tid, subcollectionName, docId);
+}
 
 export enum OperationType {
   CREATE = 'create',

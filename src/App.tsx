@@ -15,10 +15,18 @@ import {
   onSnapshot,
   query,
   orderBy,
-  doc
+  doc,
+  where,
+  getDocs,
+  getDoc,
+  setDoc,
+  updateDoc,
+  writeBatch,
+  arrayUnion
 } from 'firebase/firestore';
-import { auth, db } from './firebase';
-import { Member, Group, Itinerary, RollCall, TripSettings } from './types';
+import { auth, db, setActiveTripId, tripCollection, tripDoc } from './firebase';
+import { Trip, Member, Group, Itinerary, RollCall, TripSettings } from './types';
+import TripSwitcherModal, { type TripModalTab } from './components/TripSwitcherModal';
 import {
   Users,
   Calendar,
@@ -33,7 +41,12 @@ import {
   QrCode,
   Sparkles,
   ArrowRight,
-  Mail
+  Mail,
+  FolderKanban,
+  Share2,
+  Plus,
+  KeyRound,
+  ChevronRight
 } from 'lucide-react';
 import { cn } from './lib/utils';
 const Dashboard = lazy(() => import('./components/Dashboard'));
@@ -44,6 +57,22 @@ const FlightManager = lazy(() => import('./components/FlightManager'));
 
 type View = 'dashboard' | 'members' | 'flights' | 'itinerary' | 'rollcall';
 
+const LEGACY_TRIP_ID = 'legacy-main-trip';
+const PENDING_JOIN_KEY = 'grouptrip_pending_join';
+const ACTIVE_TRIP_STORAGE_PREFIX = 'grouptrip_active_trip_';
+
+async function commitOperationsInChunks(
+  ops: Array<(batch: ReturnType<typeof writeBatch>) => void>,
+  chunkSize = 400
+) {
+  for (let i = 0; i < ops.length; i += chunkSize) {
+    const batch = writeBatch(db);
+    const slice = ops.slice(i, i + chunkSize);
+    slice.forEach((op) => op(batch));
+    await batch.commit();
+  }
+}
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -53,6 +82,13 @@ export default function App() {
   const [emailInput, setEmailInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [dataLoading, setDataLoading] = useState(false);
+
+  const [trips, setTrips] = useState<Trip[]>([]);
+  const [tripsLoading, setTripsLoading] = useState(false);
+  const [activeTripId, setActiveTripState] = useState<string | null>(null);
+  const [tripModalOpen, setTripModalOpen] = useState(false);
+  const [tripModalTab, setTripModalTab] = useState<TripModalTab>('list');
+  const [joinNotice, setJoinNotice] = useState<string | null>(null);
 
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(() =>
@@ -75,6 +111,32 @@ export default function App() {
     return () => mediaQuery.removeEventListener('change', handleMediaChange);
   }, []);
 
+  // Keep module-level active trip ID synchronized for child components
+  setActiveTripId(activeTripId);
+
+  const openTripModal = (tab: TripModalTab = 'list') => {
+    setTripModalTab(tab);
+    setTripModalOpen(true);
+  };
+
+  const handleSelectTrip = (tripId: string) => {
+    setActiveTripId(tripId);
+    setActiveTripState(tripId);
+    if (user) {
+      localStorage.setItem(`${ACTIVE_TRIP_STORAGE_PREFIX}${user.uid}`, tripId);
+    }
+  };
+
+  // Capture ?join=CODE share links on initial page load
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const joinCode = params.get('join');
+    if (joinCode && joinCode.trim()) {
+      sessionStorage.setItem(PENDING_JOIN_KEY, joinCode.trim().toUpperCase());
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+
   // Auth state observer + surface redirect errors
   useEffect(() => {
     getRedirectResult(auth).catch((error: any) => {
@@ -88,9 +150,226 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Real-time data sync (authenticated users only)
+  // Multi-trip workspace subscription, one-time legacy data migration & share-link auto-join
   useEffect(() => {
     if (!user) {
+      setTrips([]);
+      setTripsLoading(false);
+      setActiveTripId(null);
+      setActiveTripState(null);
+      setJoinNotice(null);
+      return;
+    }
+
+    let cancelled = false;
+    setTripsLoading(true);
+
+    const uidTripsMap = new Map<string, Trip>();
+    const emailTripsMap = new Map<string, Trip>();
+    let uidLoaded = false;
+    let emailLoaded = !user.email;
+
+    const recomputeTrips = () => {
+      if (cancelled) return;
+      const mergedMap = new Map<string, Trip>();
+      uidTripsMap.forEach((t, id) => mergedMap.set(id, t));
+      emailTripsMap.forEach((t, id) => mergedMap.set(id, t));
+
+      const merged = Array.from(mergedMap.values()).sort((a, b) => {
+        if (a.id === LEGACY_TRIP_ID && b.id !== LEGACY_TRIP_ID) return -1;
+        if (b.id === LEGACY_TRIP_ID && a.id !== LEGACY_TRIP_ID) return 1;
+        return (b.createdAt || '').localeCompare(a.createdAt || '');
+      });
+
+      setTrips(merged);
+      if (uidLoaded && emailLoaded) {
+        setTripsLoading(false);
+      }
+
+      setActiveTripState((prev) => {
+        if (prev && merged.some((t) => t.id === prev)) {
+          setActiveTripId(prev);
+          return prev;
+        }
+        const saved = localStorage.getItem(`${ACTIVE_TRIP_STORAGE_PREFIX}${user.uid}`);
+        if (saved && merged.some((t) => t.id === saved)) {
+          setActiveTripId(saved);
+          return saved;
+        }
+        const fallback = merged[0]?.id || null;
+        setActiveTripId(fallback);
+        if (fallback) {
+          localStorage.setItem(`${ACTIVE_TRIP_STORAGE_PREFIX}${user.uid}`, fallback);
+        }
+        return fallback;
+      });
+    };
+
+    const migrateLegacyTripIfNeeded = async () => {
+      try {
+        const legacyTripRef = doc(db, 'trips', LEGACY_TRIP_ID);
+        const legacySnap = await getDoc(legacyTripRef);
+        if (legacySnap.exists()) return;
+
+        const [rootMembersSnap, rootSettingsSnap] = await Promise.all([
+          getDocs(collection(db, 'members')),
+          getDoc(doc(db, 'settings', 'tripSettings'))
+        ]);
+
+        if (rootMembersSnap.empty && !rootSettingsSnap.exists()) return;
+
+        const [rootGroupsSnap, rootItinerariesSnap, rootRollCallsSnap] = await Promise.all([
+          getDocs(collection(db, 'groups')),
+          getDocs(collection(db, 'itineraries')),
+          getDocs(collection(db, 'rollcalls'))
+        ]);
+
+        const settingsData = rootSettingsSnap.exists()
+          ? (rootSettingsSnap.data() as TripSettings)
+          : null;
+        const ownerEmail = (user.email || 'leo135768leo@gmail.com').toLowerCase();
+        const collabEmails = Array.from(new Set([ownerEmail, 'leo135768leo@gmail.com']));
+        const nowIso = new Date().toISOString();
+
+        // Create parent trip doc first so subcollection security rules allow writing child docs
+        await setDoc(legacyTripRef, {
+          id: LEGACY_TRIP_ID,
+          name: '2026 團體旅遊（原預設行程）',
+          description: '由既有團員與行程資料獨立保留之旅遊行程',
+          startDate: settingsData?.startDate || '2026-05-01',
+          endDate: settingsData?.endDate || '2026-05-09',
+          ownerId: user.uid,
+          ownerEmail,
+          ownerName: user.displayName || ownerEmail,
+          memberUids: [user.uid],
+          collaboratorEmails: collabEmails,
+          inviteCode: 'GT2026',
+          createdAt: nowIso,
+          updatedAt: nowIso
+        });
+
+        const ops: Array<(batch: ReturnType<typeof writeBatch>) => void> = [];
+        if (rootSettingsSnap.exists()) {
+          const settingsPayload = rootSettingsSnap.data();
+          ops.push((batch) => {
+            batch.set(tripDoc('settings', 'tripSettings', LEGACY_TRIP_ID), settingsPayload);
+          });
+        }
+        rootGroupsSnap.forEach((d) => {
+          const data = d.data();
+          ops.push((batch) => {
+            batch.set(tripDoc('groups', d.id, LEGACY_TRIP_ID), data);
+          });
+        });
+        rootMembersSnap.forEach((d) => {
+          const data = d.data();
+          ops.push((batch) => {
+            batch.set(tripDoc('members', d.id, LEGACY_TRIP_ID), data);
+          });
+        });
+        rootItinerariesSnap.forEach((d) => {
+          const data = d.data();
+          ops.push((batch) => {
+            batch.set(tripDoc('itineraries', d.id, LEGACY_TRIP_ID), data);
+          });
+        });
+        rootRollCallsSnap.forEach((d) => {
+          const data = d.data();
+          ops.push((batch) => {
+            batch.set(tripDoc('rollcalls', d.id, LEGACY_TRIP_ID), data);
+          });
+        });
+
+        await commitOperationsInChunks(ops, 400);
+      } catch (err) {
+        console.error('Legacy trip migration check failed:', err);
+      }
+    };
+
+    const handlePendingJoinLink = async () => {
+      const pendingCode = sessionStorage.getItem(PENDING_JOIN_KEY);
+      if (!pendingCode) return;
+      sessionStorage.removeItem(PENDING_JOIN_KEY);
+      try {
+        const snap = await getDocs(
+          query(collection(db, 'trips'), where('inviteCode', '==', pendingCode))
+        );
+        if (snap.empty) {
+          if (!cancelled) setJoinNotice(`邀請碼「${pendingCode}」無效或行程已不存在。`);
+          return;
+        }
+        const targetDoc = snap.docs[0];
+        const updates: Record<string, any> = {
+          memberUids: arrayUnion(user.uid),
+          updatedAt: new Date().toISOString()
+        };
+        if (user.email) {
+          updates.collaboratorEmails = arrayUnion(user.email.toLowerCase());
+        }
+        await updateDoc(doc(db, 'trips', targetDoc.id), updates);
+        if (!cancelled) {
+          localStorage.setItem(`${ACTIVE_TRIP_STORAGE_PREFIX}${user.uid}`, targetDoc.id);
+          setActiveTripId(targetDoc.id);
+          setActiveTripState(targetDoc.id);
+          setJoinNotice(`已透過邀請碼加入「${(targetDoc.data() as Trip).name}」！`);
+        }
+      } catch (err) {
+        console.error('Auto-join via invite link failed:', err);
+      }
+    };
+
+    void (async () => {
+      await migrateLegacyTripIfNeeded();
+      await handlePendingJoinLink();
+    })();
+
+    const unsubUidTrips = onSnapshot(
+      query(collection(db, 'trips'), where('memberUids', 'array-contains', user.uid)),
+      (snapshot) => {
+        uidTripsMap.clear();
+        snapshot.docs.forEach((d) => {
+          uidTripsMap.set(d.id, { ...d.data(), id: d.id } as Trip);
+        });
+        uidLoaded = true;
+        recomputeTrips();
+      },
+      (error) => {
+        console.error('Failed to subscribe uid trips:', error.message);
+        uidLoaded = true;
+        recomputeTrips();
+      }
+    );
+
+    const userEmailLower = user.email?.trim().toLowerCase();
+    const unsubEmailTrips = userEmailLower
+      ? onSnapshot(
+          query(collection(db, 'trips'), where('collaboratorEmails', 'array-contains', userEmailLower)),
+          (snapshot) => {
+            emailTripsMap.clear();
+            snapshot.docs.forEach((d) => {
+              emailTripsMap.set(d.id, { ...d.data(), id: d.id } as Trip);
+            });
+            emailLoaded = true;
+            recomputeTrips();
+          },
+          (error) => {
+            console.error('Failed to subscribe email trips:', error.message);
+            emailLoaded = true;
+            recomputeTrips();
+          }
+        )
+      : () => {};
+
+    return () => {
+      cancelled = true;
+      unsubUidTrips();
+      unsubEmailTrips();
+    };
+  }, [user]);
+
+  // Real-time trip-scoped data sync (authenticated users + activeTripId only)
+  useEffect(() => {
+    if (!user || !activeTripId) {
       setMembers([]);
       setGroups([]);
       setItineraries([]);
@@ -100,11 +379,17 @@ export default function App() {
       return;
     }
 
+    setActiveTripId(activeTripId);
     setDataLoading(true);
+    setMembers([]);
+    setGroups([]);
+    setItineraries([]);
+    setRollCalls([]);
+    setTripSettings(null);
     let membersLoaded = false;
 
     const unsubMembers = onSnapshot(
-      collection(db, 'members'),
+      tripCollection('members', activeTripId),
       (snapshot) => {
         setMembers(snapshot.docs.map((d) => ({ ...d.data(), id: d.id } as Member)));
         membersLoaded = true;
@@ -117,7 +402,7 @@ export default function App() {
     );
 
     const unsubGroups = onSnapshot(
-      collection(db, 'groups'),
+      tripCollection('groups', activeTripId),
       (snapshot) => {
         setGroups(snapshot.docs.map((d) => ({ ...d.data(), id: d.id } as Group)));
       },
@@ -127,7 +412,7 @@ export default function App() {
     );
 
     const unsubItineraries = onSnapshot(
-      query(collection(db, 'itineraries'), orderBy('startTime', 'asc')),
+      query(tripCollection('itineraries', activeTripId), orderBy('startTime', 'asc')),
       (snapshot) => {
         setItineraries(snapshot.docs.map((d) => ({ ...d.data(), id: d.id } as Itinerary)));
       },
@@ -137,7 +422,7 @@ export default function App() {
     );
 
     const unsubRollCalls = onSnapshot(
-      collection(db, 'rollcalls'),
+      tripCollection('rollcalls', activeTripId),
       (snapshot) => {
         setRollCalls(snapshot.docs.map((d) => ({ ...d.data(), id: d.id } as RollCall)));
       },
@@ -147,7 +432,7 @@ export default function App() {
     );
 
     const unsubSettings = onSnapshot(
-      doc(db, 'settings', 'tripSettings'),
+      tripDoc('settings', 'tripSettings', activeTripId),
       (docSnap) => {
         if (docSnap.exists()) {
           setTripSettings(docSnap.data() as TripSettings);
@@ -167,7 +452,7 @@ export default function App() {
       unsubRollCalls();
       unsubSettings();
     };
-  }, [user]);
+  }, [user, activeTripId]);
 
   const handleLogin = async () => {
     setAuthError(null);
@@ -429,6 +714,8 @@ export default function App() {
     );
   }
 
+  const activeTrip = trips.find((t) => t.id === activeTripId) || null;
+
   return (
     <div className="min-h-screen bg-stone-50 flex">
       {/* Sidebar */}
@@ -439,7 +726,7 @@ export default function App() {
         )}
       >
         <div className="h-full flex flex-col p-6">
-          <div className="flex items-center justify-between mb-10">
+          <div className="flex items-center justify-between mb-6">
             <h1 className="text-xl font-serif font-medium">GroupTrip Pro</h1>
             <button
               onClick={() => setIsSidebarOpen(false)}
@@ -448,6 +735,43 @@ export default function App() {
             >
               <X className="w-5 h-5 text-stone-500 hover:text-stone-900" />
             </button>
+          </div>
+
+          {/* Current Trip Switcher Card */}
+          <div className="mb-6 p-3.5 rounded-2xl bg-stone-50 border border-stone-200/80 space-y-2.5">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <span className="text-[9px] font-black uppercase tracking-widest text-stone-400 block">
+                  目前行程 ({trips.length})
+                </span>
+                <p className="text-sm font-bold text-stone-900 truncate mt-0.5" title={activeTrip?.name || ''}>
+                  {activeTrip?.name || (tripsLoading ? '讀取中...' : '尚未選擇行程')}
+                </p>
+                <p className="text-[11px] font-medium text-stone-500 truncate">
+                  {activeTrip ? `${activeTrip.startDate} ~ ${activeTrip.endDate}` : '請建立或加入行程'}
+                </p>
+              </div>
+              <FolderKanban className="w-4 h-4 text-stone-400 flex-shrink-0 mt-1" />
+            </div>
+
+            <div className="grid grid-cols-2 gap-1.5">
+              <button
+                type="button"
+                onClick={() => openTripModal('list')}
+                className="px-2.5 py-1.5 rounded-xl bg-white border border-stone-200 text-xs font-bold text-stone-700 hover:border-stone-400 transition-colors flex items-center justify-center gap-1 cursor-pointer"
+              >
+                切換 / 管理
+                <ChevronRight className="w-3 h-3" />
+              </button>
+              <button
+                type="button"
+                onClick={() => openTripModal(activeTrip ? 'share' : 'create')}
+                className="px-2.5 py-1.5 rounded-xl bg-stone-900 text-white text-xs font-bold hover:bg-stone-800 transition-colors flex items-center justify-center gap-1 cursor-pointer"
+              >
+                <Share2 className="w-3 h-3 text-[#00F3FF]" />
+                {activeTrip ? '共用邀請' : '建立行程'}
+              </button>
+            </div>
           </div>
 
           <nav className="flex-1 space-y-1">
@@ -514,29 +838,66 @@ export default function App() {
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
-        <header className="h-16 bg-white border-b border-stone-200 flex items-center justify-between px-4 sm:px-6 lg:hidden shrink-0">
-          <div className="flex items-center">
+        <header className="h-16 bg-white border-b border-stone-200 flex items-center justify-between px-4 sm:px-6 lg:hidden shrink-0 gap-2">
+          <div className="flex items-center min-w-0 flex-1">
             <button
               onClick={() => setIsSidebarOpen(true)}
-              className="p-2 -ml-2 hover:bg-stone-100 rounded-xl transition-colors"
+              className="p-2 -ml-2 hover:bg-stone-100 rounded-xl transition-colors flex-shrink-0"
               aria-label="開啟選單"
             >
               <Menu className="w-6 h-6" />
             </button>
-            <h1 className="ml-3 text-lg font-serif font-medium">GroupTrip Pro</h1>
+            <button
+              type="button"
+              onClick={() => openTripModal('list')}
+              className="ml-2 min-w-0 flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-stone-100 hover:bg-stone-200/70 transition-colors text-left"
+              title="切換或管理行程"
+            >
+              <FolderKanban className="w-3.5 h-3.5 text-stone-500 flex-shrink-0" />
+              <span className="text-sm font-bold text-stone-900 truncate max-w-[140px]">
+                {activeTrip?.name || 'GroupTrip Pro'}
+              </span>
+            </button>
           </div>
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 transition-colors"
-            title="登出系統"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-            登出
-          </button>
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            {activeTrip && (
+              <button
+                type="button"
+                onClick={() => openTripModal('share')}
+                className="p-2 rounded-xl text-stone-700 bg-stone-100 hover:bg-stone-200 transition-colors"
+                title="共用邀請"
+                aria-label="共用邀請"
+              >
+                <Share2 className="w-4 h-4" />
+              </button>
+            )}
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 transition-colors"
+              title="登出系統"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              登出
+            </button>
+          </div>
         </header>
 
         <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6 lg:p-10">
-          {dataLoading && (
+          {joinNotice && (
+            <div className="mb-6 p-4 rounded-2xl bg-stone-900 text-white text-sm font-bold flex items-center justify-between gap-4 shadow-md">
+              <span>{joinNotice}</span>
+              <button
+                type="button"
+                onClick={() => setJoinNotice(null)}
+                className="p-1 rounded-full hover:bg-white/10"
+                aria-label="關閉通知"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {(tripsLoading || (activeTripId && dataLoading)) && (
             <div className="mb-6 p-4 rounded-2xl glass-panel border border-[#00F3FF]/30 flex items-center gap-4">
               <div className="w-8 h-8 rounded-xl skeleton-shimmer flex-shrink-0" />
               <div className="flex-1 space-y-2">
@@ -546,56 +907,113 @@ export default function App() {
             </div>
           )}
 
-          <Suspense
-            fallback={
-              <div className="p-8 rounded-3xl glass-panel border border-stone-200/80 space-y-4">
-                <div className="h-8 w-48 rounded-xl skeleton-shimmer" />
-                <div className="h-64 w-full rounded-2xl skeleton-shimmer" />
+          {!tripsLoading && trips.length === 0 ? (
+            <div className="max-w-3xl mx-auto py-8 space-y-6">
+              <div className="glass-panel rounded-3xl p-8 border border-stone-200/80 shadow-sm space-y-2 text-center">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-stone-900 text-[#00F3FF] text-[10px] font-black uppercase tracking-widest">
+                  Multi-Trip Workspace
+                </span>
+                <h2 className="text-2xl sm:text-3xl font-serif font-semibold text-stone-900">
+                  歡迎來到多行程管理空間
+                </h2>
+                <p className="text-sm text-stone-500">
+                  您可以建立專屬的新旅遊團（所有團員與行程完全獨立），或輸入夥伴分享的邀請碼加入共編。
+                </p>
               </div>
-            }
-          >
-            {currentView === 'dashboard' && (
-              <Dashboard
-                members={members}
-                itineraries={itineraries}
-                rollCalls={rollCalls}
-                groups={groups}
-              />
-            )}
-            {currentView === 'members' && (
-              <MemberManagement
-                members={members}
-                groups={groups}
-                itineraries={itineraries}
-                tripSettings={tripSettings}
-              />
-            )}
-            {currentView === 'flights' && (
-              <FlightManager
-                members={members}
-                groups={groups}
-              />
-            )}
-            {currentView === 'itinerary' && (
-              <ItineraryPlanner
-                itineraries={itineraries}
-                members={members}
-                groups={groups}
-                tripSettings={tripSettings}
-              />
-            )}
-            {currentView === 'rollcall' && (
-              <RollCallSystem
-                rollCalls={rollCalls}
-                itineraries={itineraries}
-                members={members}
-                tripSettings={tripSettings}
-                groups={groups}
-              />
-            )}
-          </Suspense>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                <button
+                  type="button"
+                  onClick={() => openTripModal('create')}
+                  className="glass-panel spring-interactive p-7 rounded-3xl border border-stone-200 text-left space-y-3 hover:border-stone-400 cursor-pointer"
+                >
+                  <div className="w-12 h-12 rounded-2xl bg-stone-900 text-[#00F3FF] flex items-center justify-center shadow-md">
+                    <Plus className="w-6 h-6" />
+                  </div>
+                  <h3 className="text-xl font-serif font-bold text-stone-900">建立第一個新行程</h3>
+                  <p className="text-xs text-stone-500 leading-relaxed">
+                    設定旅遊名稱、日期並自動取得專屬邀請碼，立即開始匯入團員與規劃行程。
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => openTripModal('join')}
+                  className="glass-panel spring-interactive p-7 rounded-3xl border border-stone-200 text-left space-y-3 hover:border-stone-400 cursor-pointer"
+                >
+                  <div className="w-12 h-12 rounded-2xl bg-stone-100 text-stone-900 flex items-center justify-center">
+                    <KeyRound className="w-6 h-6" />
+                  </div>
+                  <h3 className="text-xl font-serif font-bold text-stone-900">輸入邀請碼加入行程</h3>
+                  <p className="text-xs text-stone-500 leading-relaxed">
+                    輸入團隊夥伴提供的 6 碼邀請碼，立刻同步檢視與共同編輯該團資料。
+                  </p>
+                </button>
+              </div>
+            </div>
+          ) : activeTripId ? (
+            <Suspense
+              key={activeTripId}
+              fallback={
+                <div className="p-8 rounded-3xl glass-panel border border-stone-200/80 space-y-4">
+                  <div className="h-8 w-48 rounded-xl skeleton-shimmer" />
+                  <div className="h-64 w-full rounded-2xl skeleton-shimmer" />
+                </div>
+              }
+            >
+              {currentView === 'dashboard' && (
+                <Dashboard
+                  members={members}
+                  itineraries={itineraries}
+                  rollCalls={rollCalls}
+                  groups={groups}
+                />
+              )}
+              {currentView === 'members' && (
+                <MemberManagement
+                  members={members}
+                  groups={groups}
+                  itineraries={itineraries}
+                  tripSettings={tripSettings}
+                />
+              )}
+              {currentView === 'flights' && (
+                <FlightManager
+                  members={members}
+                  groups={groups}
+                />
+              )}
+              {currentView === 'itinerary' && (
+                <ItineraryPlanner
+                  itineraries={itineraries}
+                  members={members}
+                  groups={groups}
+                  tripSettings={tripSettings}
+                />
+              )}
+              {currentView === 'rollcall' && (
+                <RollCallSystem
+                  rollCalls={rollCalls}
+                  itineraries={itineraries}
+                  members={members}
+                  tripSettings={tripSettings}
+                  groups={groups}
+                />
+              )}
+            </Suspense>
+          ) : null}
         </div>
       </main>
+
+      <TripSwitcherModal
+        isOpen={tripModalOpen}
+        initialTab={tripModalTab}
+        onClose={() => setTripModalOpen(false)}
+        trips={trips}
+        activeTrip={activeTrip}
+        onSelectTrip={handleSelectTrip}
+        currentUser={user}
+      />
     </div>
   );
 }

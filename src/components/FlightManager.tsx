@@ -11,7 +11,7 @@ import {
   MapPin
 } from 'lucide-react';
 import { doc, updateDoc } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../firebase';
+import { tripDoc, handleFirestoreError, OperationType } from '../firebase';
 import { cn } from '../lib/utils';
 
 interface FlightManagerProps {
@@ -42,7 +42,7 @@ export default function FlightManager({ members, groups }: FlightManagerProps) {
 
   const handleSave = async (id: string, field: string) => {
     try {
-      const memberRef = doc(db, 'members', id);
+      const memberRef = tripDoc('members', id);
       await updateDoc(memberRef, { [field]: editValue });
       setEditingCell(null);
     } catch (error) {

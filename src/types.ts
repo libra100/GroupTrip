@@ -69,3 +69,19 @@ export interface TripSettings {
 export interface DailyAbsence {
   memberIds: string[];
 }
+
+export interface Trip {
+  id: string;
+  name: string;
+  description?: string;
+  startDate: string;
+  endDate: string;
+  ownerId: string;
+  ownerEmail: string;
+  ownerName?: string;
+  memberUids: string[];
+  collaboratorEmails: string[];
+  inviteCode: string;
+  createdAt: string;
+  updatedAt?: string;
+}

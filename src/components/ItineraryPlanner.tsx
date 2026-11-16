@@ -4,7 +4,7 @@ import { Itinerary, Member, Group, ItineraryType, TripSettings, DailyAbsence } f
 import { format, parseISO, addDays, differenceInDays } from 'date-fns';
 import { cn, getMemberTripDayColor } from '../lib/utils';
 import { doc, onSnapshot, Timestamp, setDoc, addDoc, updateDoc, deleteDoc, collection } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../firebase';
+import { db, tripCollection, tripDoc, getActiveTripId, handleFirestoreError, OperationType } from '../firebase';
 import DailyAbsenceManager from './DailyAbsenceManager';
 import { 
   Plus, 
@@ -149,11 +149,19 @@ export default function ItineraryPlanner({
     }
     try {
       const finalOfficialStart = tempSettings.officialStartDate || tempSettings.startDate;
-      await setDoc(doc(db, 'settings', 'tripSettings'), {
+      await setDoc(tripDoc('settings', 'tripSettings'), {
         startDate: tempSettings.startDate,
         endDate: tempSettings.endDate,
         officialStartDate: finalOfficialStart
       }, { merge: true });
+      const activeTid = getActiveTripId();
+      if (activeTid) {
+        await updateDoc(doc(db, 'trips', activeTid), {
+          startDate: tempSettings.startDate,
+          endDate: tempSettings.endDate,
+          updatedAt: new Date().toISOString()
+        }).catch(() => {});
+      }
       setIsSettingTrip(false);
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'settings');
@@ -169,7 +177,7 @@ export default function ItineraryPlanner({
       const finalMembers = newItem.isMain
         ? [...new Set([...selectedMembers, ...dailyAbsenceIds])]
         : selectedMembers.filter(id => !dailyAbsenceIds.includes(id));
-      const newDocRef = doc(collection(db, 'itineraries'));
+      const newDocRef = doc(tripCollection('itineraries'));
       await setDoc(newDocRef, {
         title: newItem.title,
         type: newItem.type,
@@ -212,7 +220,7 @@ export default function ItineraryPlanner({
       const finalMembers = newItem.isMain
         ? [...new Set([...selectedMembers, ...dailyAbsenceIds])]
         : selectedMembers.filter(id => !dailyAbsenceIds.includes(id));
-      const ref = doc(db, 'itineraries', editing.id);
+      const ref = tripDoc('itineraries', editing.id);
       await updateDoc(ref, {
         ...editing,
         title: newItem.title,
@@ -246,10 +254,10 @@ export default function ItineraryPlanner({
       // 1. Delete associated roll call if it exists
       // The roll call ID is rc_{id} (sanitized)
       const rollCallId = `rc_${id}`.replace(/\//g, '_');
-      await deleteDoc(doc(db, 'rollcalls', rollCallId)).catch(() => {}); // Ignore error if not exists
+      await deleteDoc(tripDoc('rollcalls', rollCallId)).catch(() => {}); // Ignore error if not exists
       
       // 2. Delete the itinerary itself
-      await deleteDoc(doc(db, 'itineraries', id));
+      await deleteDoc(tripDoc('itineraries', id));
     } catch (error) {
       console.error('Delete failed:', error);
       handleFirestoreError(error, OperationType.DELETE, `itineraries/${id}`);

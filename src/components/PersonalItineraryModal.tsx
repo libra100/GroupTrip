@@ -21,7 +21,7 @@ import {
 import { format, addDays, parseISO, differenceInDays } from 'date-fns';
 import { cn } from '../lib/utils';
 import { doc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
-import { db } from '../firebase';
+import { tripDoc } from '../firebase';
 
 interface PersonalItineraryModalProps {
   member: Member;
@@ -85,7 +85,7 @@ export default function PersonalItineraryModal({ member, itineraries, tripSettin
   const handleToggleParticipation = async (itinerary: Itinerary, isCurrentlySkipped: boolean) => {
     setLoadingId(itinerary.id);
     try {
-      const itRef = doc(db, 'itineraries', itinerary.id);
+      const itRef = tripDoc('itineraries', itinerary.id);
       
       if (itinerary.isMain) {
         await updateDoc(itRef, {

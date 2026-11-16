@@ -10,7 +10,7 @@ import {
   Users
 } from 'lucide-react';
 import { doc, setDoc } from 'firebase/firestore';
-import { db } from '../firebase';
+import { tripDoc } from '../firebase';
 import { cn, getMemberTripDayColor } from '../lib/utils';
 
 interface DailyAbsenceManagerProps {
@@ -62,7 +62,7 @@ export default function DailyAbsenceManager({ isOpen, onClose, date, members, gr
 
     setOptimisticIds(nextIds);
     try {
-      await setDoc(doc(db, 'settings', 'tripSettings'), {
+      await setDoc(tripDoc('settings', 'tripSettings'), {
         dailyAbsences: nextDailyAbsences
       }, { merge: true });
     } catch (error) {
@@ -77,7 +77,7 @@ export default function DailyAbsenceManager({ isOpen, onClose, date, members, gr
     
     setOptimisticIds([]);
     try {
-      await setDoc(doc(db, 'settings', 'tripSettings'), {
+      await setDoc(tripDoc('settings', 'tripSettings'), {
         dailyAbsences: {
           ...(tripSettings.dailyAbsences || {}),
           [date]: []

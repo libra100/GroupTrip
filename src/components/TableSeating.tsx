@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { doc, updateDoc } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../firebase';
+import { tripDoc, handleFirestoreError, OperationType } from '../firebase';
 
 interface TableSeatingProps {
   members: Member[];
@@ -106,7 +106,7 @@ export default function TableSeating({
     else delete newAssignments[sourceId];
 
     try {
-      await updateDoc(doc(db, 'itineraries', itinerary.id), {
+      await updateDoc(tripDoc('itineraries', itinerary.id), {
         seatingAssignments: newAssignments
       });
       setSwapSource(null);
@@ -131,7 +131,7 @@ export default function TableSeating({
     }
 
     try {
-      await updateDoc(doc(db, 'itineraries', itinerary.id), {
+      await updateDoc(tripDoc('itineraries', itinerary.id), {
         seatingAssignments: newAssignments
       });
     } catch (error) {
@@ -148,7 +148,7 @@ export default function TableSeating({
     }
 
     try {
-      await updateDoc(doc(db, 'itineraries', itinerary.id), {
+      await updateDoc(tripDoc('itineraries', itinerary.id), {
         seatingNotes: newNotes
       });
     } catch (error) {
