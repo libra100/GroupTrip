@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Member, Itinerary, RollCall, Group } from '../types';
 import {
   Users,
@@ -29,6 +29,18 @@ export default function TableSeating({
   const [selectedSeat, setSelectedSeat] = useState<{unitIndex: number, seatIndex: number} | null>(null);
   const [swapSource, setSwapSource] = useState<{unitIndex: number, seatIndex: number} | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (!selectedSeat && !swapSource) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (selectedSeat) setSelectedSeat(null);
+        else if (swapSource) setSwapSource(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedSeat, swapSource]);
   
   // Use a fixed or config-based number of tables
   const columns = itinerary.seatingConfig?.columns || 5;
@@ -40,7 +52,11 @@ export default function TableSeating({
   }, [members]);
 
   const groupMap = useMemo(() => {
-    return groups.reduce((acc, g) => ({ ...acc, [g.id]: g.name }), {} as Record<string, string>);
+    return groups.reduce((acc, g) => ({
+      ...acc,
+      [g.id]: g.name,
+      [g.name]: g.name,
+    }), {} as Record<string, string>);
   }, [groups]);
 
   const assignments = itinerary.seatingAssignments || {};
@@ -145,6 +161,7 @@ export default function TableSeating({
     const seatId = `${unitIndex}_${seatIndex}`;
     const memberId = assignments[seatId];
     const member = memberId ? memberMap[memberId] : null;
+    const isOrphaned = Boolean(memberId && !member);
     const status = member ? (rollCall?.statusMap[member.id] || 'absent') : null;
     const note = seatingNotes[seatId];
     const isVeg = member?.dietaryHabits?.includes('素');
@@ -174,6 +191,8 @@ export default function TableSeating({
                 : status === 'divergent'
                 ? "bg-purple-50 border-purple-200"
                 : "bg-white border-stone-200 shadow-sm")
+            : isOrphaned
+            ? "bg-rose-50/70 border-dashed border-rose-300"
             : "bg-stone-50 border-dashed border-stone-200 hover:border-stone-400"
         )}
       >
@@ -183,6 +202,8 @@ export default function TableSeating({
               <span className="text-xs font-bold text-stone-700 truncate">{member.name}</span>
               {isVeg && <span className="text-[10px] flex-shrink-0">🌿</span>}
             </>
+          ) : isOrphaned ? (
+            <span className="text-[10px] font-bold text-rose-500 truncate mx-auto">(已刪除成員)</span>
           ) : (
             <span className="text-[10px] font-bold text-stone-300 mx-auto">空位</span>
           )}
@@ -249,7 +270,7 @@ export default function TableSeating({
 
       {/* Seat Detail Dialog */}
       {selectedSeat && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+        <div role="dialog" aria-modal="true" className="fixed inset-0 z-[60] flex items-center justify-center p-4">
           <div 
             onClick={() => setSelectedSeat(null)}
             className="absolute inset-0 bg-stone-900/40 backdrop-blur-sm"
@@ -292,10 +313,10 @@ export default function TableSeating({
                       {/* Show current member first if exists */}
                       {assignments[`${selectedSeat.unitIndex}_${selectedSeat.seatIndex}`] && (
                         <option value={assignments[`${selectedSeat.unitIndex}_${selectedSeat.seatIndex}`]}>
-                          {memberMap[assignments[`${selectedSeat.unitIndex}_${selectedSeat.seatIndex}`]]?.name} (目前位置)
+                          {memberMap[assignments[`${selectedSeat.unitIndex}_${selectedSeat.seatIndex}`]]?.name || '(已刪除成員)'} (目前位置)
                         </option>
                       )}
-                      {unassignedMembers.sort((a, b) => a.name.localeCompare(b.name)).map(m => (
+                      {unassignedMembers.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'zh-Hant')).map(m => (
                         <option key={m.id} value={m.id}>
                           {m.name} {m.groupId ? `[${groupMap[m.groupId] || '?'}]` : ''} {m.dietaryHabits?.includes('素') ? '🌿' : ''}
                         </option>
@@ -308,26 +329,49 @@ export default function TableSeating({
                 </div>
 
                 {/* Member Info (if assigned) */}
-                {assignments[`${selectedSeat.unitIndex}_${selectedSeat.seatIndex}`] && (
-                  <div className="bg-stone-50 rounded-2xl p-5 border border-stone-100 flex items-start gap-4">
-                    <div className="p-2.5 bg-white rounded-xl shadow-sm">
-                      <AlertCircle className="w-5 h-5 text-amber-500" />
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest">團員資訊</p>
-                      <div className="mt-1 flex flex-wrap gap-2">
-                        <span className="text-sm font-bold text-stone-700">
-                          飲食：{memberMap[assignments[`${selectedSeat.unitIndex}_${selectedSeat.seatIndex}`]]?.dietaryHabits || '一般'}
-                        </span>
-                        {memberMap[assignments[`${selectedSeat.unitIndex}_${selectedSeat.seatIndex}`]]?.groupId && (
-                          <span className="text-[10px] px-2 py-0.5 bg-stone-200 text-stone-600 rounded-md font-bold">
-                            {groupMap[memberMap[assignments[`${selectedSeat.unitIndex}_${selectedSeat.seatIndex}`]]!.groupId!] || '未知群組'}
+                {(() => {
+                  const assignedId = assignments[`${selectedSeat.unitIndex}_${selectedSeat.seatIndex}`];
+                  if (!assignedId) return null;
+                  const assignedMember = memberMap[assignedId];
+                  if (!assignedMember) {
+                    return (
+                      <div className="bg-rose-50 rounded-2xl p-5 border border-rose-200 flex items-start gap-4">
+                        <div className="p-2.5 bg-white rounded-xl shadow-sm">
+                          <AlertCircle className="w-5 h-5 text-rose-500" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest">異常座位資料</p>
+                          <p className="text-sm font-bold text-rose-700 mt-1">此座位指派的團員已被刪除，請選擇「空位」或其他團員以更新配置。</p>
+                        </div>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="bg-stone-50 rounded-2xl p-5 border border-stone-100 flex items-start gap-4">
+                      <div className="p-2.5 bg-white rounded-xl shadow-sm">
+                        <AlertCircle className="w-5 h-5 text-amber-500" />
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest">團員資訊</p>
+                        <div className="mt-1 flex flex-wrap gap-2">
+                          <span className="text-sm font-bold text-stone-700">
+                            飲食：{assignedMember.dietaryHabits || '一般'}
                           </span>
-                        )}
+                          {assignedMember.groupId && (
+                            <span className="text-[10px] px-2 py-0.5 bg-stone-200 text-stone-600 rounded-md font-bold">
+                              {groupMap[assignedMember.groupId] || '未知群組'}
+                            </span>
+                          )}
+                          {assignedMember.notes && (
+                            <span className="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-800 rounded-md font-bold">
+                              備註：{assignedMember.notes}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
 
                 {/* Note Section */}
                 <div className="space-y-3">

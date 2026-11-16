@@ -24,7 +24,7 @@ export default function Dashboard({ members, itineraries, rollCalls, groups }: D
   
   // Group summary logic
   const groupSummaries = groups.map(group => {
-    const groupMembers = members.filter(m => m.groupId === group.id);
+    const groupMembers = members.filter(m => m.groupId === group.id || m.groupId === group.name);
     const leader = groupMembers.find(m => m.isLeader);
     return {
       ...group,
@@ -62,12 +62,14 @@ export default function Dashboard({ members, itineraries, rollCalls, groups }: D
       default: result = [];
     }
 
-    if (searchTerm) {
-      const lowerSearch = searchTerm.toLowerCase();
+    if (searchTerm.trim()) {
+      const lowerSearch = searchTerm.trim().toLowerCase();
       result = result.filter(m => 
-        m.name.toLowerCase().includes(lowerSearch) ||
-        (m.tags?.some(tag => tag.toLowerCase().includes(lowerSearch)) ?? false) ||
-        groups.find(g => g.id === m.groupId)?.name.toLowerCase().includes(lowerSearch)
+        (m.name || '').toLowerCase().includes(lowerSearch) ||
+        (m.notes || '').toLowerCase().includes(lowerSearch) ||
+        (m.phone || '').toLowerCase().includes(lowerSearch) ||
+        (Array.isArray(m.tags) && m.tags.some(tag => (tag || '').toLowerCase().includes(lowerSearch))) ||
+        groups.find(g => g.id === m.groupId || g.name === m.groupId)?.name.toLowerCase().includes(lowerSearch)
       );
     }
     return result;
@@ -93,7 +95,7 @@ export default function Dashboard({ members, itineraries, rollCalls, groups }: D
               <div className={cn("p-2 rounded-xl bg-stone-50 group-hover/card:brightness-110 transition-all", stat.color)}>
                 <stat.icon className="w-6 h-6" />
               </div>
-              <div className="text-[10px] font-bold uppercase tracking-widest text-stone-300 group-hover/card:text-stone-400 transition-colors">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-stone-500 group-hover/card:text-stone-700 transition-colors">
                 點擊查看
               </div>
             </div>
@@ -154,7 +156,12 @@ export default function Dashboard({ members, itineraries, rollCalls, groups }: D
 
       {/* Member List Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm">
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={(e) => { if (e.target === e.currentTarget) { setIsModalOpen(false); setSearchTerm(''); } }}
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm"
+        >
           <div className="bg-white w-full max-w-2xl rounded-3xl p-8 shadow-2xl flex flex-col max-h-[80vh]">
             <div className="flex items-center justify-between mb-6">
               <div>
@@ -196,7 +203,7 @@ export default function Dashboard({ members, itineraries, rollCalls, groups }: D
                           {member.isLeader && <Crown className="w-2.5 h-2.5 flex-shrink-0" />}
                         </div>
                         <span className="text-[8px] opacity-60 font-bold uppercase tracking-tighter mt-0.5">
-                          {groups.find(g => g.id === member.groupId)?.name || '未分組'}
+                          {groups.find(g => g.id === member.groupId || g.name === member.groupId)?.name || '未分組'}
                         </span>
                       </div>
                     </div>

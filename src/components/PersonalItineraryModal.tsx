@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Member, Itinerary, TripSettings, ItineraryType } from '../types';
 import { 
   X, 
@@ -32,6 +32,14 @@ interface PersonalItineraryModalProps {
 
 export default function PersonalItineraryModal({ member, itineraries, tripSettings, onClose }: PersonalItineraryModalProps) {
   const [loadingId, setLoadingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
 
   const tripDates = React.useMemo(() => {
     if (!tripSettings?.startDate || !tripSettings?.endDate) return [];
@@ -154,13 +162,18 @@ export default function PersonalItineraryModal({ member, itineraries, tripSettin
   }, [] as { date: string; items: (Itinerary & { isSkipped: boolean })[]; dayNumber: number }[]);
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm">
+    <div
+      role="dialog"
+      aria-modal="true"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-stone-900/40 backdrop-blur-sm"
+    >
       <div className="bg-stone-50 w-full max-w-3xl rounded-[2.5rem] p-8 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden border border-white">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-5">
             <div className="w-16 h-16 rounded-3xl bg-stone-900 text-white flex items-center justify-center text-2xl font-black shadow-xl ring-4 ring-white">
-              {member.name.charAt(0)}
+              {(member.name || '?').charAt(0)}
             </div>
             <div>
               <div className="flex items-center gap-2 mb-1">

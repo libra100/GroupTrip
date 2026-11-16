@@ -432,7 +432,7 @@ export default function ItineraryPlanner({
           )}
 
           {dayItineraries.length > 0 ? (
-            <div className="relative space-y-0 before:absolute before:left-6 before:top-2 before:bottom-2 before:w-0.5 before:bg-stone-200 xl:before:left-1/2">
+            <div className="relative overflow-x-hidden space-y-0 before:absolute before:left-6 before:top-2 before:bottom-2 before:w-0.5 before:bg-stone-200 xl:before:left-1/2">
               {dayItineraries.sort((a, b) => {
                 const aT = a.startTime instanceof Timestamp ? a.startTime.toMillis() : new Date(a.startTime).getTime();
                 const bT = b.startTime instanceof Timestamp ? b.startTime.toMillis() : new Date(b.startTime).getTime();
@@ -444,24 +444,25 @@ export default function ItineraryPlanner({
 
                 const itCard = (
                   <div className={cn(
-                    "bg-white p-4 px-7 rounded-[2rem] border border-stone-200 shadow-sm hover:shadow-lg transition-all group/card flex items-center gap-5 min-w-[320px] max-w-full relative z-10",
+                    "bg-white p-4 sm:px-6 rounded-[2rem] border border-stone-200 shadow-sm hover:shadow-lg transition-all group/card flex items-center gap-4 sm:gap-5 w-full min-w-0 max-w-full relative z-10",
                     isLeft ? "xl:flex-row flex-row" : "xl:flex-row-reverse flex-row" // On smaller screens, always flex-row (label on left)
                   )}>
                     <div className="flex flex-col items-center flex-shrink-0">
                       <span className={cn("px-2.5 py-1 rounded-lg text-[10px] uppercase font-black text-white shadow-sm", getTypeColor(it.type))}>{getTypeLabel(it.type)}</span>
                     </div>
-                    <div className="w-px h-8 bg-stone-100" />
+                    <div className="w-px h-8 bg-stone-100 flex-shrink-0" />
                     <div className={cn("flex flex-col min-w-0 flex-1", (!isLeft) ? "xl:items-end xl:text-right text-left" : "xl:items-start text-left")}>
-                       <div className={cn("flex items-center gap-3", (!isLeft) ? "xl:flex-row-reverse flex-row" : "flex-row")}>
-                         <h3 className="text-lg font-black text-stone-800 leading-tight tracking-tight break-words">{it.title}</h3>
+                       <div className={cn("flex flex-wrap items-center gap-2", (!isLeft) ? "xl:flex-row-reverse flex-row" : "flex-row")}>
+                         <h3 className="text-lg font-black text-stone-800 leading-tight tracking-tight break-words min-w-[7rem]">{it.title}</h3>
                          { (() => {
                             const participants = it.isMain 
                               ? members.filter(m => !it.excludedMemberIds?.includes(m.id) && !dailyAbsenceIds.includes(m.id))
                               : members.filter(m => it.assignedMemberIds?.includes(m.id) && !dailyAbsenceIds.includes(m.id));
 
                             if (it.type === 'transit' && it.isMultiVehicle) {
-                              const car1Count = participants.filter(p => (it.vehicleAssignments?.[p.id] || '1') === '1').length;
-                              const car2Count = participants.filter(p => it.vehicleAssignments?.[p.id] === '2').length;
+                              const isCar2 = (val?: string) => val === '2' || val === 'B' || val === 'B車';
+                              const car1Count = participants.filter(p => !isCar2(it.vehicleAssignments?.[p.id] || p.carNumber)).length;
+                              const car2Count = participants.filter(p => isCar2(it.vehicleAssignments?.[p.id] || p.carNumber)).length;
                               return (
                                 <div className="flex items-center gap-1 whitespace-nowrap flex-shrink-0">
                                    <span className="text-[10px] font-black text-blue-500 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-100 uppercase tracking-tighter">{car1Count}人</span>
@@ -493,7 +494,7 @@ export default function ItineraryPlanner({
                        </div>
                        {it.notes && <p className="text-xs text-stone-400 line-clamp-1 opacity-80 leading-relaxed font-medium">{it.notes}</p>}
                     </div>
-                    <div className={cn("flex items-center gap-2 opacity-0 group-hover/card:opacity-100 transition-all", (!isLeft) ? "xl:flex-row-reverse flex-row" : "flex-row")}>
+                    <div className={cn("flex items-center gap-2 opacity-100 xl:opacity-0 xl:group-hover/card:opacity-100 transition-all flex-shrink-0", (!isLeft) ? "xl:flex-row-reverse flex-row" : "flex-row")}>
                       <button onClick={() => handleEditClick(it)} className="p-1.5 text-stone-300 hover:text-stone-900 transition-colors"><Edit2 className="w-4 h-4" /></button>
                       
                       {deletingId === it.id ? (
@@ -818,11 +819,15 @@ export default function ItineraryPlanner({
                         <input type="text" placeholder="搜尋團員..." value={memberSearchTerm} onChange={(e) => setMemberSearchTerm(e.target.value)} className="w-full pl-11 pr-4 py-3 rounded-xl border-2 border-stone-100 focus:border-stone-900/20 text-sm font-bold bg-white" />
                       </div>
                       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 p-1">
-                        {members.filter(m => m.name.includes(memberSearchTerm)).map(m => {
+                        {members.filter(m => {
+                          const q = memberSearchTerm.trim().toLowerCase();
+                          return !q || (m.name || '').toLowerCase().includes(q) || (m.notes || '').toLowerCase().includes(q);
+                        }).map(m => {
                           const isSelected = selectedMembers.includes(m.id);
                           const isAbsent = dailyAbsenceIds.includes(m.id);
                           const isParticipating = !isAbsent && (newItem.isMain ? !isSelected : isSelected);
-                          const carAssignment = newItem.vehicleAssignments?.[m.id] || '1';
+                          const rawCar = newItem.vehicleAssignments?.[m.id] || m.carNumber || '1';
+                          const carAssignment = (rawCar === '2' || rawCar === 'B' || rawCar === 'B車') ? '2' : '1';
                           
                           return (
                             <div key={m.id} className="relative group">

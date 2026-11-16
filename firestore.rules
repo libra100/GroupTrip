@@ -8,40 +8,75 @@ service cloud.firestore {
     // Collection: members
     // Document ID: memberId
     // Fields:
-    //   - id: string (required)
-    //   - name: string (required, < 100 chars)
-    //   - dietaryHabits: string (optional, < 100 chars)
-    //   - phone: string (optional, < 20 chars)
-    //   - passportInfo: string (optional, < 200 chars)
-    //   - groupId: string (optional)
-    //   - tags: list (optional, strings < 50 chars)
+    //   - id: string (optional on legacy partial updates, <= 128 chars)
+    //   - name: string (required, 1..100 chars)
+    //   - dietaryHabits: string | null (optional, <= 100 chars)
+    //   - phone: string | null (optional, <= 30 chars)
+    //   - passportInfo: string | null (optional, <= 200 chars)
+    //   - notes: string | null (optional, <= 2000 chars)
+    //   - groupId: string | null (optional, <= 100 chars)
+    //   - tags: list | null (optional, <= 50 items)
+    //   - outboundFlight: string | null (optional, <= 100 chars)
+    //   - outboundTime: string | null (optional, <= 100 chars)
+    //   - returnFlight: string | null (optional, <= 100 chars)
+    //   - returnTime: string | null (optional, <= 100 chars)
+    //   - isLeader: bool | null (optional)
+    //   - gender: string | null (optional, <= 100 chars)
+    //   - tripDays: number | null (optional, 0..1000)
+    //   - carNumber: string | null (optional, <= 100 chars)
     //
     // Collection: groups
     // Document ID: groupId
     // Fields:
-    //   - id: string (required)
-    //   - name: string (required, < 100 chars)
+    //   - id: string (optional on legacy partial updates, <= 128 chars)
+    //   - name: string (required, 1..100 chars)
+    //
+    // Collection: settings
+    // Document ID: docId (e.g., tripSettings)
+    // Fields:
+    //   - startDate: string (optional, <= 30 chars)
+    //   - endDate: string (optional, <= 30 chars)
+    //   - officialStartDate: string | null (optional, <= 30 chars)
+    //   - dailyAbsences: map | null (optional, <= 500 entries)
+    //   - adminEmails: list | null (optional, <= 100 items)
     //
     // Collection: itineraries
     // Document ID: itineraryId
     // Fields:
-    //   - id: string (required)
-    //   - title: string (required, < 200 chars)
+    //   - id: string (optional on legacy partial updates, <= 128 chars)
+    //   - title: string (required, 1..200 chars)
     //   - startTime: timestamp (required)
-    //   - endTime: timestamp (optional)
-    //   - type: string (required, enum: attraction, dining, transit, logistics)
-    //   - location: map (optional)
-    //   - notes: string (optional, < 1000 chars)
-    //   - isMain: bool (required)
-    //   - assignedMemberIds: list (optional, strings)
+    //   - endTime: timestamp | null (optional)
+    //   - type: string (required, enum: attraction, dining, transit, logistics, accommodation)
+    //   - location: map | null (optional, { address?: string, navLink?: string })
+    //   - notes: string | null (optional, <= 2000 chars)
+    //   - isMain: bool (optional)
+    //   - assignedMemberIds: list | null (optional, <= 1000 items)
+    //   - excludedMemberIds: list | null (optional, <= 1000 items)
+    //   - dayIndex: number | null (optional, -1..365)
+    //   - vehicleAssignments: map | null (optional, <= 1000 entries)
+    //   - isMultiVehicle: bool | null (optional)
+    //   - roomAssignments: map | null (optional, <= 1000 entries)
+    //   - isMultiRoom: bool | null (optional)
+    //   - rooms: list | null (optional, <= 200 items)
+    //   - seatingConfig: map | null (optional, { columns?: number, rows?: number })
+    //   - seatingAssignments: map | null (optional, <= 1000 entries)
+    //   - seatingNotes: map | null (optional, <= 1000 entries)
+    //   - groupAssignments: map | null (optional, legacy, <= 1000 entries)
+    //   - isGrouped: bool | null (optional, legacy)
+    //   - groups: list | null (optional, legacy, <= 200 items)
+    //   - accommodationDetail: string | null (optional, legacy, <= 1000 chars)
     //
     // Collection: rollcalls
-    // Document ID: rollcallId
+    // Document ID: rollcallId (e.g., rc_{itineraryId})
     // Fields:
-    //   - id: string (required)
-    //   - itineraryId: string (required)
+    //   - id: string (optional, <= 128 chars)
+    //   - itineraryId: string (required, 1..128 chars)
     //   - timestamp: timestamp (required)
-    //   - statusMap: map (required, keys are memberIds, values are present/absent/divergent)
+    //   - statusMap: map (required, <= 1000 entries)
+    //
+    // Document: test/connection
+    //   - Read-only connection test document for authenticated clients
     //
     // ===============================================================
 
@@ -49,44 +84,150 @@ service cloud.firestore {
     // Helper Functions
     // ===============================================================
     function isAuthenticated() {
-      return true;
+      return request.auth != null &&
+             (('email_verified' in request.auth.token && request.auth.token.email_verified == true) ||
+              ('firebase' in request.auth.token &&
+               request.auth.token.firebase is map &&
+               'sign_in_provider' in request.auth.token.firebase &&
+               request.auth.token.firebase.sign_in_provider == 'password') ||
+              ('admin' in request.auth.token && request.auth.token.admin == true));
     }
 
-    function isOwner() {
-      return true;
+    function hasRequiredFields(data, fields) {
+      return data.keys().hasAll(fields);
     }
 
-    function hasRequiredFields(fields) {
-      return request.resource.data.keys().hasAll(fields);
+    function hasOnlyAllowedFields(data, fields) {
+      return data.keys().hasOnly(fields);
     }
 
-    function hasOnlyAllowedFields(fields) {
-      return request.resource.data.keys().hasOnly(fields);
+    function isValidOptionalString(data, field, maxLen) {
+      return !(field in data) ||
+             data[field] == null ||
+             (data[field] is string && data[field].size() <= maxLen);
     }
 
+    function isValidOptionalBool(data, field) {
+      return !(field in data) ||
+             data[field] == null ||
+             data[field] is bool;
+    }
+
+    function isValidOptionalList(data, field, maxSize) {
+      return !(field in data) ||
+             data[field] == null ||
+             (data[field] is list && data[field].size() <= maxSize);
+    }
+
+    function isValidOptionalMap(data, field, maxSize) {
+      return !(field in data) ||
+             data[field] == null ||
+             (data[field] is map && data[field].size() <= maxSize);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
     function isValidMember(data) {
-      return hasRequiredFields(['id', 'name']) &&
-             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
-             (!('dietaryHabits' in data) || (data.dietaryHabits is string && data.dietaryHabits.size() < 100)) &&
-             (!('phone' in data) || (data.phone is string && data.phone.size() < 20)) &&
-             (!('passportInfo' in data) || (data.passportInfo is string && data.passportInfo.size() < 200));
+      return hasOnlyAllowedFields(data, [
+               'id', 'name', 'dietaryHabits', 'phone', 'passportInfo', 'notes',
+               'groupId', 'tags', 'outboundFlight', 'outboundTime',
+               'returnFlight', 'returnTime', 'isLeader', 'gender',
+               'tripDays', 'carNumber'
+             ]) &&
+             hasRequiredFields(data, ['name']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             (!('id' in data) || (data.id is string && data.id.size() <= 128)) &&
+             isValidOptionalString(data, 'dietaryHabits', 100) &&
+             isValidOptionalString(data, 'phone', 30) &&
+             isValidOptionalString(data, 'passportInfo', 200) &&
+             isValidOptionalString(data, 'notes', 2000) &&
+             isValidOptionalString(data, 'groupId', 100) &&
+             isValidOptionalList(data, 'tags', 50) &&
+             isValidOptionalString(data, 'outboundFlight', 100) &&
+             isValidOptionalString(data, 'outboundTime', 100) &&
+             isValidOptionalString(data, 'returnFlight', 100) &&
+             isValidOptionalString(data, 'returnTime', 100) &&
+             isValidOptionalBool(data, 'isLeader') &&
+             isValidOptionalString(data, 'gender', 100) &&
+             (!('tripDays' in data) || data.tripDays == null || (data.tripDays is number && data.tripDays >= 0 && data.tripDays <= 1000)) &&
+             isValidOptionalString(data, 'carNumber', 100);
+    }
+
+    function isValidGroup(data) {
+      return hasOnlyAllowedFields(data, ['id', 'name']) &&
+             hasRequiredFields(data, ['name']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             (!('id' in data) || (data.id is string && data.id.size() <= 128));
+    }
+
+    function isValidSettings(data) {
+      return hasOnlyAllowedFields(data, ['startDate', 'endDate', 'officialStartDate', 'dailyAbsences', 'adminEmails']) &&
+             (!('startDate' in data) || (data.startDate is string && data.startDate.size() <= 30)) &&
+             (!('endDate' in data) || (data.endDate is string && data.endDate.size() <= 30)) &&
+             isValidOptionalString(data, 'officialStartDate', 30) &&
+             isValidOptionalMap(data, 'dailyAbsences', 500) &&
+             isValidOptionalList(data, 'adminEmails', 100);
+    }
+
+    function isValidItineraryLocation(loc) {
+      return loc == null ||
+             (loc is map &&
+              loc.keys().hasOnly(['address', 'navLink']) &&
+              isValidOptionalString(loc, 'address', 500) &&
+              isValidOptionalString(loc, 'navLink', 1000));
+    }
+
+    function isValidSeatingConfig(config) {
+      return config == null ||
+             (config is map &&
+              config.keys().hasOnly(['columns', 'rows']) &&
+              (!('columns' in config) || (config.columns is number && config.columns >= 0 && config.columns <= 100)) &&
+              (!('rows' in config) || (config.rows is number && config.rows >= 0 && config.rows <= 100)));
     }
 
     function isValidItinerary(data) {
-      return hasRequiredFields(['id', 'title', 'startTime', 'type', 'isMain']) &&
-             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+      return hasOnlyAllowedFields(data, [
+               'id', 'title', 'startTime', 'endTime', 'type', 'location',
+               'notes', 'isMain', 'assignedMemberIds', 'excludedMemberIds',
+               'dayIndex', 'vehicleAssignments', 'isMultiVehicle',
+               'roomAssignments', 'isMultiRoom', 'rooms', 'seatingConfig',
+               'seatingAssignments', 'seatingNotes',
+               'groupAssignments', 'isGrouped', 'groups', 'accommodationDetail'
+             ]) &&
+             hasRequiredFields(data, ['title', 'startTime', 'type']) &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
              data.startTime is timestamp &&
-             (!('endTime' in data) || data.endTime is timestamp) &&
-             data.type in ['attraction', 'dining', 'transit', 'logistics'] &&
-             data.isMain is bool &&
-             (!('notes' in data) || (data.notes is string && data.notes.size() < 1000));
+             (!('endTime' in data) || data.endTime == null || data.endTime is timestamp) &&
+             data.type in ['attraction', 'dining', 'transit', 'logistics', 'accommodation'] &&
+             (!('id' in data) || (data.id is string && data.id.size() <= 128)) &&
+             (!('isMain' in data) || data.isMain is bool) &&
+             isValidOptionalString(data, 'notes', 2000) &&
+             (!('location' in data) || isValidItineraryLocation(data.location)) &&
+             isValidOptionalList(data, 'assignedMemberIds', 1000) &&
+             isValidOptionalList(data, 'excludedMemberIds', 1000) &&
+             (!('dayIndex' in data) || data.dayIndex == null || (data.dayIndex is number && data.dayIndex >= -1 && data.dayIndex <= 365)) &&
+             isValidOptionalMap(data, 'vehicleAssignments', 1000) &&
+             isValidOptionalBool(data, 'isMultiVehicle') &&
+             isValidOptionalMap(data, 'roomAssignments', 1000) &&
+             isValidOptionalBool(data, 'isMultiRoom') &&
+             isValidOptionalList(data, 'rooms', 200) &&
+             (!('seatingConfig' in data) || isValidSeatingConfig(data.seatingConfig)) &&
+             isValidOptionalMap(data, 'seatingAssignments', 1000) &&
+             isValidOptionalMap(data, 'seatingNotes', 1000) &&
+             isValidOptionalMap(data, 'groupAssignments', 1000) &&
+             isValidOptionalBool(data, 'isGrouped') &&
+             isValidOptionalList(data, 'groups', 200) &&
+             isValidOptionalString(data, 'accommodationDetail', 1000);
     }
 
     function isValidRollCall(data) {
-      return hasRequiredFields(['id', 'itineraryId', 'timestamp', 'statusMap']) &&
-             data.itineraryId is string &&
+      return hasOnlyAllowedFields(data, ['id', 'itineraryId', 'timestamp', 'statusMap']) &&
+             hasRequiredFields(data, ['itineraryId', 'timestamp', 'statusMap']) &&
+             (!('id' in data) || (data.id is string && data.id.size() <= 128)) &&
+             data.itineraryId is string && data.itineraryId.size() > 0 && data.itineraryId.size() <= 128 &&
              data.timestamp is timestamp &&
-             data.statusMap is map;
+             data.statusMap is map && data.statusMap.size() <= 1000;
     }
 
     // ===============================================================
@@ -99,27 +240,32 @@ service cloud.firestore {
     }
 
     match /members/{memberId} {
-      allow read, write: if true;
+      allow read, delete: if isAuthenticated();
+      allow create, update: if isAuthenticated() && isValidMember(request.resource.data);
     }
 
     match /groups/{groupId} {
-      allow read, write: if true;
+      allow read, delete: if isAuthenticated();
+      allow create, update: if isAuthenticated() && isValidGroup(request.resource.data);
     }
 
     match /settings/{docId} {
-      allow read, write: if true;
+      allow read, delete: if isAuthenticated();
+      allow create, update: if isAuthenticated() && isValidSettings(request.resource.data);
     }
 
     match /itineraries/{itineraryId} {
-      allow read, write: if true;
+      allow read, delete: if isAuthenticated();
+      allow create, update: if isAuthenticated() && isValidItinerary(request.resource.data);
     }
 
     match /rollcalls/{rollcallId} {
-      allow read, write: if true;
+      allow read, delete: if isAuthenticated();
+      allow create, update: if isAuthenticated() && isValidRollCall(request.resource.data);
     }
-    
+
     match /test/connection {
-      allow read, write: if true;
+      allow read: if isAuthenticated();
     }
   }
 }

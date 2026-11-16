@@ -4,7 +4,9 @@ export interface Member {
   id: string;
   name: string;
   dietaryHabits?: string;
+  phone?: string;
   passportInfo?: string;
+  notes?: string;
   groupId?: string;
   tags?: string[];
   outboundFlight?: string;

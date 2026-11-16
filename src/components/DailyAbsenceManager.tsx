@@ -9,7 +9,7 @@ import {
   RotateCcw,
   Users
 } from 'lucide-react';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { cn, getMemberTripDayColor } from '../lib/utils';
 
@@ -32,10 +32,14 @@ export default function DailyAbsenceManager({ isOpen, onClose, date, members, gr
 
   // Sync optimistic state with server when the modal opens or data stabilizes
   React.useEffect(() => {
-    if (isOpen) {
-      setOptimisticIds(null);
-    }
-  }, [isOpen, date]);
+    if (!isOpen) return;
+    setOptimisticIds(null);
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, date, onClose]);
 
   const handleToggleCategory = async (targetMemberIds: string[]) => {
     if (!tripSettings) return;
@@ -58,9 +62,9 @@ export default function DailyAbsenceManager({ isOpen, onClose, date, members, gr
 
     setOptimisticIds(nextIds);
     try {
-      await updateDoc(doc(db, 'settings', 'tripSettings'), { 
-        [`dailyAbsences.${date}`]: nextIds
-      });
+      await setDoc(doc(db, 'settings', 'tripSettings'), {
+        dailyAbsences: nextDailyAbsences
+      }, { merge: true });
     } catch (error) {
       console.error("Failed to update category absence:", error);
       setOptimisticIds(null);
@@ -73,9 +77,12 @@ export default function DailyAbsenceManager({ isOpen, onClose, date, members, gr
     
     setOptimisticIds([]);
     try {
-      await updateDoc(doc(db, 'settings', 'tripSettings'), { 
-        [`dailyAbsences.${date}`]: []
-      });
+      await setDoc(doc(db, 'settings', 'tripSettings'), {
+        dailyAbsences: {
+          ...(tripSettings.dailyAbsences || {}),
+          [date]: []
+        }
+      }, { merge: true });
     } catch (error) {
       console.error("Failed to clear all absences:", error);
       setOptimisticIds(null);
@@ -83,22 +90,28 @@ export default function DailyAbsenceManager({ isOpen, onClose, date, members, gr
     }
   };
 
-  const filteredMembers = members.filter(m => 
-    m.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    m.tags?.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase()))
-  ).sort((a, b) => {
+  const filteredMembers = members.filter(m => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      (m.name || '').toLowerCase().includes(q) ||
+      (m.notes || '').toLowerCase().includes(q) ||
+      (m.phone || '').toLowerCase().includes(q) ||
+      (Array.isArray(m.tags) && m.tags.some(tag => (tag || '').toLowerCase().includes(q)))
+    );
+  }).sort((a, b) => {
     // Show absent members first
     const aAbs = absentMemberIds.includes(a.id);
     const bAbs = absentMemberIds.includes(b.id);
     if (aAbs && !bAbs) return -1;
     if (!aAbs && bAbs) return 1;
-    return a.name.localeCompare(b.name, 'zh-Hant');
+    return (a.name || '').localeCompare(b.name || '', 'zh-Hant');
   });
 
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+        <div role="dialog" aria-modal="true" className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div 
             onClick={onClose}
             className="absolute inset-0 bg-stone-900/40 backdrop-blur-sm"
@@ -107,7 +120,7 @@ export default function DailyAbsenceManager({ isOpen, onClose, date, members, gr
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="bg-white w-full max-w-4xl rounded-3xl p-8 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden"
+            className="relative z-10 bg-white w-full max-w-4xl rounded-3xl p-8 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden"
           >
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">

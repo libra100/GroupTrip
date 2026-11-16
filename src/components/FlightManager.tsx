@@ -65,7 +65,11 @@ export default function FlightManager({ members, groups }: FlightManagerProps) {
 
     const groups_dict = members.reduce((acc, m) => {
       // Basic filtering
-      const matchesSearch = m.name.toLowerCase().includes(searchTerm.toLowerCase());
+      const q = searchTerm.trim().toLowerCase();
+      const matchesSearch = !q ||
+        (m.name || '').toLowerCase().includes(q) ||
+        (m.notes || '').toLowerCase().includes(q) ||
+        (m.phone || '').toLowerCase().includes(q);
       const matchesGroup = true; // Group filter removed
       if (!matchesSearch || !matchesGroup) return acc;
 
@@ -108,6 +112,10 @@ export default function FlightManager({ members, groups }: FlightManagerProps) {
         if (b.members.length !== a.members.length) {
           return b.members.length - a.members.length;
         }
+
+        // Prioritize entries with known time before unknown time
+        if (a.time && !b.time) return -1;
+        if (!a.time && b.time) return 1;
         
         // Fallback to sorting by time and then flight number
         return a.time.localeCompare(b.time) || a.flightNo.localeCompare(b.flightNo);
@@ -116,7 +124,7 @@ export default function FlightManager({ members, groups }: FlightManagerProps) {
 
   const getGroupName = (groupId?: string) => {
     if (!groupId) return '-';
-    return groups.find(g => g.id === groupId)?.name || '-';
+    return groups.find(g => g.id === groupId || g.name === groupId)?.name || '-';
   };
 
   return (
@@ -189,10 +197,10 @@ export default function FlightManager({ members, groups }: FlightManagerProps) {
                 {/* Flight Header */}
                 <div 
                   onClick={() => toggleFlight(flightNo)}
-                  className="flex items-center justify-between p-6 cursor-pointer hover:bg-stone-50 transition-colors"
+                  className="flex items-center justify-between gap-3 p-4 sm:p-6 cursor-pointer hover:bg-stone-50 transition-colors"
                 >
-                  <div className="flex items-center gap-6">
-                    <div className={cn("w-12 h-12 rounded-2xl flex items-center justify-center", flightNo === '日本' ? "bg-stone-100" : bgColorClass)}>
+                  <div className="flex items-center gap-3 sm:gap-5 min-w-0 flex-1">
+                    <div className={cn("w-11 h-11 sm:w-12 sm:h-12 rounded-2xl flex items-center justify-center flex-shrink-0", flightNo === '日本' ? "bg-stone-100" : bgColorClass)}>
                       {flightNo === '日本' ? (
                         <MapPin className="text-stone-500" />
                       ) : activeTab === 'outbound' ? (
@@ -201,21 +209,29 @@ export default function FlightManager({ members, groups }: FlightManagerProps) {
                         <PlaneLanding className={colorClass} />
                       )}
                     </div>
-                    <div>
-                      <div className="flex items-center gap-3">
-                        <h3 className="text-xl font-bold text-stone-900">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+                        <h3 className="text-lg sm:text-xl font-bold text-stone-900 break-words">
                           {flightNo === '未填寫' ? '尚未填寫航班' : flightNo === '日本' ? '在地成員 (日本)' : flightNo}
                         </h3>
-                        <span className="px-2 py-0.5 bg-stone-100 text-stone-500 rounded text-[10px] font-bold uppercase">{flightMembers.length} 人</span>
+                        <span className="px-2 py-0.5 bg-stone-100 text-stone-600 rounded text-[10px] font-bold uppercase whitespace-nowrap flex-shrink-0">{flightMembers.length} 人</span>
                       </div>
-                      <p className="text-sm text-stone-500 flex items-center gap-2 mt-0.5">
-                        <span className="font-medium">{flightNo === '日本' ? '無需搭乘飛機' : (time || '時間未定')}</span>
+                      <p className="text-sm text-stone-500 flex items-center gap-2 mt-0.5 truncate">
+                        <span className="font-medium truncate">{flightNo === '日本' ? '無需搭乘飛機' : (time || '時間未定')}</span>
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4">
-                    <button className={cn("text-xs font-bold uppercase tracking-widest transition-all", isExpanded ? "text-stone-900" : "text-stone-400")}>
-                      {isExpanded ? '收合詳情' : '查看名單'}
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <button
+                      type="button"
+                      className={cn(
+                        "px-3 py-1.5 rounded-xl text-xs font-bold tracking-wide transition-all whitespace-nowrap flex-shrink-0 border",
+                        isExpanded
+                          ? "bg-stone-900 text-white border-stone-900"
+                          : "bg-stone-50 text-stone-600 border-stone-200 hover:border-stone-300"
+                      )}
+                    >
+                      {isExpanded ? '收合 ▲' : '查看 ▼'}
                     </button>
                   </div>
                 </div>
@@ -237,7 +253,17 @@ export default function FlightManager({ members, groups }: FlightManagerProps) {
                           {flightMembers.map(m => (
                             <tr key={m.id} className="group hover:bg-white transition-colors">
                               <td className="px-6 py-4">
-                                <span className="font-medium text-stone-900 text-sm">{m.name}</span>
+                                <div className="flex flex-col gap-0.5 min-w-[120px] max-w-[220px] whitespace-normal">
+                                  <span className="font-medium text-stone-900 text-sm">{m.name}</span>
+                                  {m.phone && (
+                                    <span className="text-[11px] font-mono text-stone-400">{m.phone}</span>
+                                  )}
+                                  {m.notes && (
+                                    <span className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200/70 rounded px-1.5 py-0.5 w-fit line-clamp-1" title={m.notes}>
+                                      {m.notes}
+                                    </span>
+                                  )}
+                                </div>
                               </td>
                               <td className="px-6 py-4">
                                 <span className="text-xs text-stone-500">{getGroupName(m.groupId)}</span>

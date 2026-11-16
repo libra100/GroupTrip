@@ -163,11 +163,14 @@ export default function RollCallSystem({
   };
 
   const filteredMembers = members.filter(m => {
-    const matchesSearch = 
-      m.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    const q = searchTerm.trim().toLowerCase();
+    const matchesSearch = !q ||
+      (m.name || '').toLowerCase().includes(q) ||
+      (m.notes || '').toLowerCase().includes(q) ||
+      (m.phone || '').toLowerCase().includes(q) ||
       (Array.isArray(m.tags) 
-        ? m.tags.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase()))
-        : (typeof m.tags === 'string' && (m.tags as string).toLowerCase().includes(searchTerm.toLowerCase()))
+        ? m.tags.some(tag => (tag || '').toLowerCase().includes(q))
+        : (typeof m.tags === 'string' && (m.tags as string).toLowerCase().includes(q))
       );
     
     // Global Daily Absence Filter
@@ -359,7 +362,9 @@ export default function RollCallSystem({
   };
 
   const getParticipantCount = (it: Itinerary) => {
-    if (!it.isMain) return it.assignedMemberIds?.length || 0;
+    if (!it.isMain) {
+      return it.assignedMemberIds?.filter(id => !dailyAbsenceIds.includes(id)).length || 0;
+    }
     
     // For Main itineraries, count members who should be there on that day
     return members.filter(m => {
@@ -544,13 +549,13 @@ export default function RollCallSystem({
                   </div>
 
                   {/* Search / Seating Actions Section */}
-                  <div className="flex-1 xl:max-w-[320px]">
+                  <div className="w-full sm:flex-1 xl:max-w-[320px]">
                     {viewMode === 'list' ? (
-                      <div className="relative hidden xl:block">
+                      <div className="relative">
                         <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
                         <input 
                           type="text" 
-                          placeholder="搜尋姓名..." 
+                          placeholder="搜尋姓名、標籤、備註..." 
                           value={searchTerm}
                           onChange={(e) => setSearchTerm(e.target.value)}
                           className="w-full pl-11 pr-4 py-3 bg-stone-50 border border-stone-100 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#00F3FF]/30 transition-all text-sm font-bold text-stone-900"
@@ -599,15 +604,15 @@ export default function RollCallSystem({
                       <div className="w-px h-6 bg-stone-200" />
                       <div className="flex flex-col items-center px-1 sm:px-2">
                         <span className="text-[8px] font-black text-emerald-500 uppercase tracking-tighter">已到</span>
-                        <span className="text-base font-black text-emerald-600 leading-none mt-0.5">{Object.values(latestRollCall?.statusMap || {}).filter(s => s === 'present').length}</span>
+                        <span className="text-base font-black text-emerald-600 leading-none mt-0.5">{filteredMembers.filter(m => latestRollCall?.statusMap?.[m.id] === 'present').length}</span>
                       </div>
                       <div className="flex flex-col items-center px-1 sm:px-2">
                         <span className="text-[8px] font-black text-rose-500 uppercase tracking-tighter">未到</span>
-                        <span className="text-base font-black text-rose-600 leading-none mt-0.5">{Object.values(latestRollCall?.statusMap || {}).filter(s => s === 'absent').length}</span>
+                        <span className="text-base font-black text-rose-600 leading-none mt-0.5">{filteredMembers.filter(m => latestRollCall?.statusMap?.[m.id] === 'absent').length}</span>
                       </div>
                       <div className="flex flex-col items-center px-1 sm:px-2">
                         <span className="text-[8px] font-black text-purple-500 uppercase tracking-tighter">脫隊</span>
-                        <span className="text-base font-black text-purple-600 leading-none mt-0.5">{Object.values(latestRollCall?.statusMap || {}).filter(s => s === 'divergent').length}</span>
+                        <span className="text-base font-black text-purple-600 leading-none mt-0.5">{filteredMembers.filter(m => latestRollCall?.statusMap?.[m.id] === 'divergent').length}</span>
                       </div>
                     </div>
 
@@ -741,9 +746,19 @@ export default function RollCallSystem({
                                 </div>
                                 <div className="min-w-0 flex-1">
                                   <div className="flex items-center gap-1">
-                                    <span className="font-black text-sm text-stone-900 truncate">{member.name}</span>
+                                    <span
+                                      className="font-black text-sm text-stone-900 truncate min-w-[4.5rem]"
+                                      title={member.notes ? `${member.name} (${member.notes})` : member.name}
+                                    >
+                                      {member.name}
+                                    </span>
                                     {isSpecialDiet && <span className="text-[10px]" title={member.dietaryHabits}>🍖</span>}
                                   </div>
+                                  {member.notes && (
+                                    <p className="text-[10px] text-stone-400 font-bold truncate mt-0.5" title={member.notes}>
+                                      {member.notes}
+                                    </p>
+                                  )}
                                 </div>
                               </div>
 
@@ -812,7 +827,7 @@ export default function RollCallSystem({
                                 </div>
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-1">
-                                    <span className="font-bold text-xs text-stone-900 truncate">{member.name}</span>
+                                    <span className="font-bold text-xs text-stone-900 truncate min-w-[4.5rem]" title={member.notes ? `${member.name} (${member.notes})` : member.name}>{member.name}</span>
                                     {isSpecialDiet && <span className="text-[9px]">🍖</span>}
                                   </div>
                                 </div>
@@ -874,7 +889,7 @@ export default function RollCallSystem({
                                   <div className={cn(
                                     useTiles 
                                       ? "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4"
-                                      : "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-0 border border-stone-100 rounded-2xl bg-white overflow-hidden"
+                                      : "grid grid-cols-1 md:grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-0 border border-stone-100 rounded-2xl bg-white overflow-hidden"
                                   )}>
                                     {carA.map(useTiles ? renderMemberTile : renderMemberRow)}
                                   </div>
@@ -889,7 +904,7 @@ export default function RollCallSystem({
                                   <div className={cn(
                                     useTiles 
                                       ? "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4"
-                                      : "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-0 border border-stone-100 rounded-2xl bg-white overflow-hidden"
+                                      : "grid grid-cols-1 md:grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-0 border border-stone-100 rounded-2xl bg-white overflow-hidden"
                                   )}>
                                     {carB.map(useTiles ? renderMemberTile : renderMemberRow)}
                                   </div>
@@ -920,7 +935,7 @@ export default function RollCallSystem({
                                   <div className={cn(
                                     useTiles 
                                       ? "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4"
-                                      : "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-0 border border-stone-100 rounded-2xl bg-white overflow-hidden"
+                                      : "grid grid-cols-1 md:grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-0 border border-stone-100 rounded-2xl bg-white overflow-hidden"
                                   )}>
                                     {roomGroups[roomNum].map(useTiles ? renderMemberTile : renderMemberRow)}
                                   </div>
@@ -935,7 +950,7 @@ export default function RollCallSystem({
                             "p-4",
                             useTiles 
                               ? "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4"
-                              : "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-0"
+                              : "grid grid-cols-1 md:grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-0"
                           )}>
                             {sortedMembers.map(useTiles ? renderMemberTile : renderMemberRow)}
                           </div>

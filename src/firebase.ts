@@ -54,7 +54,18 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     operationType,
     path
   }
-  const errorString = JSON.stringify(errInfo);
+  const sanitizedErrInfo = {
+    error: errInfo.error,
+    operationType: errInfo.operationType,
+    path: errInfo.path,
+    authInfo: {
+      userId: errInfo.authInfo.userId,
+      isAnonymous: errInfo.authInfo.isAnonymous,
+      tenantId: errInfo.authInfo.tenantId,
+      // PII (email, emailVerified, providerInfo) intentionally omitted from console logs
+    },
+  };
+  const errorString = JSON.stringify(sanitizedErrInfo);
   console.error('Firestore Error: ', errorString);
   alert(`操作失敗 (Operation Failed): ${errInfo.error}`);
 }
