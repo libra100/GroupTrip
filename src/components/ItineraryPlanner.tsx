@@ -6,8 +6,10 @@ import { cn, getMemberTripDayColor } from '../lib/utils';
 import { doc, onSnapshot, Timestamp, setDoc, addDoc, updateDoc, deleteDoc, collection } from 'firebase/firestore';
 import { db, tripCollection, tripDoc, getActiveTripId, handleFirestoreError, OperationType } from '../firebase';
 import DailyAbsenceManager from './DailyAbsenceManager';
+import AiItineraryImportModal from './AiItineraryImportModal';
 import { 
   Plus, 
+  Sparkles,
   MapPin, 
   Clock, 
   Users, 
@@ -103,6 +105,7 @@ export default function ItineraryPlanner({
   });
 
   const [isAbsenceModalOpen, setIsAbsenceModalOpen] = useState(false);
+  const [isAiImportOpen, setIsAiImportOpen] = useState(false);
 
   const dailyAbsenceIds = useMemo(() => {
     if (!activeDate || !tripSettings?.dailyAbsences) return [];
@@ -331,7 +334,7 @@ export default function ItineraryPlanner({
         </div>
         
         {tripSettings ? (
-          <div className="flex items-center gap-3">
+          <div className="flex items-center flex-wrap gap-2.5 sm:gap-3">
             <button 
               onClick={() => {
                 setTempSettings(tripSettings);
@@ -342,6 +345,14 @@ export default function ItineraryPlanner({
             >
               <Settings className="w-4 h-4" />
               {safeFormat(parseISO(tripSettings.startDate), 'yyyy/MM/dd')} - {safeFormat(parseISO(tripSettings.endDate), 'yyyy/MM/dd')}
+            </button>
+
+            <button 
+              onClick={() => setIsAiImportOpen(true)}
+              className="flex items-center gap-2 bg-stone-900 text-white px-5 py-2 rounded-full text-sm font-medium hover:bg-stone-800 transition-colors shadow-sm whitespace-nowrap border border-[#00F3FF]/30"
+            >
+              <Sparkles className="w-4 h-4 text-[#00F3FF]" />
+              AI 辨識匯入
             </button>
 
             <button 
@@ -373,16 +384,25 @@ export default function ItineraryPlanner({
             </button>
           </div>
         ) : (
-          <button 
-            onClick={() => {
-              setTempSettings({ startDate: format(new Date(), 'yyyy-MM-dd'), endDate: format(addDays(new Date(), 2), 'yyyy-MM-dd') });
-              setIsSettingTrip(true);
-            }}
-            className="flex items-center gap-2 bg-stone-900 text-white px-6 py-2 rounded-full text-sm font-medium hover:bg-stone-800 transition-colors shadow-sm"
-          >
-            <Calendar className="w-4 h-4" />
-            設定旅遊日期
-          </button>
+          <div className="flex items-center flex-wrap gap-2.5 sm:gap-3">
+            <button 
+              onClick={() => setIsAiImportOpen(true)}
+              className="flex items-center gap-2 bg-stone-900 text-white px-5 py-2 rounded-full text-sm font-medium hover:bg-stone-800 transition-colors shadow-sm whitespace-nowrap border border-[#00F3FF]/30"
+            >
+              <Sparkles className="w-4 h-4 text-[#00F3FF]" />
+              AI 辨識匯入
+            </button>
+            <button 
+              onClick={() => {
+                setTempSettings({ startDate: format(new Date(), 'yyyy-MM-dd'), endDate: format(addDays(new Date(), 2), 'yyyy-MM-dd') });
+                setIsSettingTrip(true);
+              }}
+              className="flex items-center gap-2 bg-stone-900 text-white px-6 py-2 rounded-full text-sm font-medium hover:bg-stone-800 transition-colors shadow-sm"
+            >
+              <Calendar className="w-4 h-4" />
+              設定旅遊日期
+            </button>
+          </div>
         )}
       </div>
 
@@ -1011,6 +1031,12 @@ export default function ItineraryPlanner({
         date={activeDate}
         members={members}
         groups={groups}
+        tripSettings={tripSettings}
+      />
+
+      <AiItineraryImportModal
+        isOpen={isAiImportOpen}
+        onClose={() => setIsAiImportOpen(false)}
         tripSettings={tripSettings}
       />
     </div>

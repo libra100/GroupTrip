@@ -35,6 +35,12 @@ import {
 import { Trip } from '../types';
 import { db, tripDoc } from '../firebase';
 import { cn } from '../lib/utils';
+import {
+  ParsedTripProposal,
+  commitParsedItinerariesToTrip,
+  commitParsedMembersToTrip
+} from '../lib/aiTripParser';
+import AiProposalParserPanel from './AiProposalParserPanel';
 
 export type TripModalTab = 'list' | 'create' | 'join' | 'share';
 
@@ -73,6 +79,7 @@ export default function TripSwitcherModal({
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
 
   // Create tab state
+  const [createMode, setCreateMode] = useState<'ai' | 'manual'>('ai');
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
   const [newStartDate, setNewStartDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
@@ -174,6 +181,59 @@ export default function TripSwitcherModal({
       onClose();
     } catch (err: any) {
       setErrorMsg(err?.message || '建立行程失敗，請稍後再試。');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCreateTripFromAI = async (proposal: ParsedTripProposal) => {
+    setBusy(true);
+    setErrorMsg(null);
+    try {
+      const newTripRef = doc(collection(db, 'trips'));
+      const nowIso = new Date().toISOString();
+      const newTripPayload: Trip = {
+        id: newTripRef.id,
+        name: proposal.name.trim(),
+        description: proposal.description.trim(),
+        startDate: proposal.startDate,
+        endDate: proposal.endDate,
+        ownerId: currentUser.uid,
+        ownerEmail: userEmailLower || 'unknown@example.com',
+        ownerName: currentUser.displayName || userEmailLower || '建立者',
+        memberUids: [currentUser.uid],
+        collaboratorEmails: userEmailLower ? [userEmailLower] : [],
+        inviteCode: generateInviteCode(),
+        createdAt: nowIso,
+        updatedAt: nowIso
+      };
+
+      // Write parent trip document first so subcollection security rules allow writing child docs
+      const officialStart = proposal.officialStartDate || proposal.startDate;
+      await setDoc(newTripRef, newTripPayload);
+      await setDoc(tripDoc('settings', 'tripSettings', newTripRef.id), {
+        startDate: proposal.startDate,
+        endDate: proposal.endDate,
+        officialStartDate: officialStart,
+        dailyAbsences: {}
+      });
+
+      await commitParsedItinerariesToTrip(
+        newTripRef.id,
+        officialStart,
+        proposal.items
+      );
+
+      await commitParsedMembersToTrip(
+        newTripRef.id,
+        proposal.members || []
+      );
+
+      onSelectTrip(newTripRef.id);
+      onClose();
+    } catch (err: any) {
+      setErrorMsg(err?.message || '建立 AI 辨識行程失敗，請稍後再試。');
+      throw err;
     } finally {
       setBusy(false);
     }
@@ -650,67 +710,115 @@ export default function TripSwitcherModal({
 
           {/* TAB 2: CREATE */}
           {activeTab === 'create' && (
-            <form onSubmit={handleCreateTrip} className="space-y-4 max-w-xl mx-auto py-2">
-              <div>
-                <label className="text-xs font-bold text-stone-700 block mb-1.5">
-                  行程名稱 <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  placeholder="例如：2026 北海道冬季五日團"
-                  className="w-full px-4 py-3 rounded-2xl bg-stone-50 border border-stone-200 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-[#00F3FF]/40"
+            <div className="space-y-5 max-w-2xl mx-auto py-1">
+              {/* Segmented Switch: AI vs Manual */}
+              <div className="grid grid-cols-2 gap-1.5 p-1 rounded-2xl bg-stone-100 border border-stone-200/80">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCreateMode('ai');
+                    setErrorMsg(null);
+                  }}
+                  className={cn(
+                    'py-2.5 px-3 rounded-xl text-xs font-bold transition-all inline-flex items-center justify-center gap-1.5 cursor-pointer',
+                    createMode === 'ai'
+                      ? 'bg-stone-900 text-white shadow-sm'
+                      : 'text-stone-600 hover:text-stone-900'
+                  )}
+                >
+                  <Sparkles className={cn('w-3.5 h-3.5', createMode === 'ai' && 'text-[#00F3FF]')} />
+                  AI 辨識企劃書／紙本建立
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCreateMode('manual');
+                    setErrorMsg(null);
+                  }}
+                  className={cn(
+                    'py-2.5 px-3 rounded-xl text-xs font-bold transition-all inline-flex items-center justify-center gap-1.5 cursor-pointer',
+                    createMode === 'manual'
+                      ? 'bg-stone-900 text-white shadow-sm'
+                      : 'text-stone-600 hover:text-stone-900'
+                  )}
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  手動建立空白行程
+                </button>
+              </div>
+
+              {createMode === 'ai' ? (
+                <AiProposalParserPanel
+                  defaultStartDate={newStartDate}
+                  showTripMeta={true}
+                  submitLabelPrefix="確認建立行程並匯入"
+                  busy={busy}
+                  onConfirm={handleCreateTripFromAI}
                 />
-              </div>
+              ) : (
+                <form onSubmit={handleCreateTrip} className="space-y-4">
+                  <div>
+                    <label className="text-xs font-bold text-stone-700 block mb-1.5">
+                      行程名稱 <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={newName}
+                      onChange={(e) => setNewName(e.target.value)}
+                      placeholder="例如：2026 北海道冬季五日團"
+                      className="w-full px-4 py-3 rounded-2xl bg-stone-50 border border-stone-200 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-[#00F3FF]/40"
+                    />
+                  </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs font-bold text-stone-700 block mb-1.5">
-                    開始日期 <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={newStartDate}
-                    onChange={(e) => setNewStartDate(e.target.value)}
-                    className="w-full px-4 py-3 rounded-2xl bg-stone-50 border border-stone-200 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-[#00F3FF]/40"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-stone-700 block mb-1.5">
-                    結束日期 <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={newEndDate}
-                    onChange={(e) => setNewEndDate(e.target.value)}
-                    className="w-full px-4 py-3 rounded-2xl bg-stone-50 border border-stone-200 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-[#00F3FF]/40"
-                  />
-                </div>
-              </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs font-bold text-stone-700 block mb-1.5">
+                        開始日期 <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="date"
+                        required
+                        value={newStartDate}
+                        onChange={(e) => setNewStartDate(e.target.value)}
+                        className="w-full px-4 py-3 rounded-2xl bg-stone-50 border border-stone-200 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-[#00F3FF]/40"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-stone-700 block mb-1.5">
+                        結束日期 <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="date"
+                        required
+                        value={newEndDate}
+                        onChange={(e) => setNewEndDate(e.target.value)}
+                        className="w-full px-4 py-3 rounded-2xl bg-stone-50 border border-stone-200 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-[#00F3FF]/40"
+                      />
+                    </div>
+                  </div>
 
-              <div>
-                <label className="text-xs font-bold text-stone-700 block mb-1.5">行程簡介（選填）</label>
-                <textarea
-                  rows={3}
-                  value={newDesc}
-                  onChange={(e) => setNewDesc(e.target.value)}
-                  placeholder="可填寫領隊備忘、集合班機或該團特色..."
-                  className="w-full px-4 py-3 rounded-2xl bg-stone-50 border border-stone-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#00F3FF]/40 resize-none"
-                />
-              </div>
+                  <div>
+                    <label className="text-xs font-bold text-stone-700 block mb-1.5">行程簡介（選填）</label>
+                    <textarea
+                      rows={3}
+                      value={newDesc}
+                      onChange={(e) => setNewDesc(e.target.value)}
+                      placeholder="可填寫領隊備忘、集合班機或該團特色..."
+                      className="w-full px-4 py-3 rounded-2xl bg-stone-50 border border-stone-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#00F3FF]/40 resize-none"
+                    />
+                  </div>
 
-              <button
-                type="submit"
-                disabled={busy}
-                className="w-full py-3.5 rounded-2xl bg-stone-900 text-white text-sm font-bold shadow-lg hover:bg-stone-800 disabled:opacity-50 transition-all cursor-pointer"
-              >
-                {busy ? '正在建立獨立行程空間...' : '建立並切換至此新行程'}
-              </button>
-            </form>
+                  <button
+                    type="submit"
+                    disabled={busy}
+                    className="w-full py-3.5 rounded-2xl bg-stone-900 text-white text-sm font-bold shadow-lg hover:bg-stone-800 disabled:opacity-50 transition-all cursor-pointer"
+                  >
+                    {busy ? '正在建立獨立行程空間...' : '建立並切換至此新行程'}
+                  </button>
+                </form>
+              )}
+            </div>
           )}
 
           {/* TAB 3: JOIN BY INVITE CODE */}
