@@ -460,7 +460,7 @@ export default function ItineraryPlanner({
           )}
 
           {dayItineraries.length > 0 ? (
-            <div className="relative overflow-x-hidden space-y-0 before:absolute before:left-6 before:top-2 before:bottom-2 before:w-0.5 before:bg-stone-200 xl:before:left-1/2">
+            <div className="relative pl-2 sm:pl-3 xl:pl-0 space-y-0 before:absolute before:left-8 sm:before:left-9 before:top-2 before:bottom-2 before:w-0.5 before:bg-stone-200 xl:before:left-1/2">
               {dayItineraries.sort((a, b) => {
                 const aT = a.startTime instanceof Timestamp ? a.startTime.toMillis() : new Date(a.startTime).getTime();
                 const bT = b.startTime instanceof Timestamp ? b.startTime.toMillis() : new Date(b.startTime).getTime();
@@ -572,7 +572,7 @@ export default function ItineraryPlanner({
                     </div>
 
                     {/* Zone 2: Time Axis & Circle */}
-                    <div className="flex justify-center items-center w-12 xl:w-20 z-10 flex-shrink-0">
+                    <div className="flex justify-center items-center w-12 xl:w-20 z-20 flex-shrink-0">
                        {(() => {
                          const h = start.getHours();
                          const m = start.getMinutes();
@@ -584,10 +584,10 @@ export default function ItineraryPlanner({
                         return (
                           <div className="relative w-12 h-12 flex items-center justify-center bg-white rounded-full shadow-md ring-4 ring-white transition-transform group-hover:scale-110">
                              <div className="absolute inset-0.5 rounded-full bg-white" />
-                             <svg className="w-full h-full transform -rotate-90 overflow-visible" viewBox="0 0 48 48">
-                               <circle cx="24" cy="24" r={r} fill="white" stroke="#f5f5f4" strokeWidth="2.5" />
+                             <svg className="w-full h-full transform -rotate-90 overflow-visible" viewBox="0 0 52 52">
+                               <circle cx="26" cy="26" r={r} fill="white" stroke="#f5f5f4" strokeWidth="2.5" />
                                <motion.circle 
-                                 cx="24" cy="24" r={r} fill="transparent" stroke={hex} strokeWidth="4"
+                                 cx="26" cy="26" r={r} fill="transparent" stroke={hex} strokeWidth="4"
                                  strokeDasharray={`${remaining} ${c}`}
                                  initial={{ strokeDashoffset: -passed }} animate={{ strokeDashoffset: -passed }}
                                  transition={{ duration: 1.5, ease: "easeOut" }} strokeLinecap="round"
@@ -631,12 +631,12 @@ export default function ItineraryPlanner({
       {/* (Adding/Editing Logic was already functional, just needed the lists back on timeline) */}
 
       {(isAdding || editing) && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+        <div role="dialog" aria-modal="true" className="fixed inset-0 z-[60] flex items-center justify-center p-4">
           <div 
             onClick={() => { setIsAdding(false); setEditing(null); setSelectedMembers([]); setMemberSearchTerm(''); }}
             className="absolute inset-0 bg-stone-900/40 backdrop-blur-sm"
           />
-          <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} className="relative bg-white w-full max-w-4xl rounded-[2.5rem] shadow-2xl max-h-[90vh] overflow-hidden flex flex-col">
+          <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} className="relative z-10 bg-white w-full max-w-4xl rounded-[2.5rem] shadow-2xl max-h-[90vh] overflow-hidden flex flex-col">
             <div className="px-8 pt-8 pb-4 flex items-center justify-between border-b border-stone-50">
               <div className="flex-1 min-w-0 mr-4">
                 <div className="flex items-center gap-3">
@@ -962,7 +962,7 @@ export default function ItineraryPlanner({
           <motion.div 
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            className="relative w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden border border-stone-100"
+            className="relative z-10 w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden border border-stone-100"
           >
             <div className="p-8 border-b border-stone-50 flex items-center justify-between">
               <div>

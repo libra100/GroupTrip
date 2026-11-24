@@ -194,11 +194,11 @@ export default function PersonalItineraryModal({ member, itineraries, tripSettin
         </div>
 
         {/* Content Area */}
-        <div className="flex-1 overflow-y-auto pr-2 space-y-10 scrollbar-thin custom-scrollbar pb-6">
-          {groupedByDay.length > 0 ? groupedByDay.map(({ date, items, dayNumber }) => (
+        <div className="flex-1 overflow-y-auto px-1 pr-2 space-y-10 scrollbar-thin custom-scrollbar pb-6">
+          {groupedByDay.length > 0 ? groupedByDay.map(({ date, items, dayNumber }, dayIdx) => (
             <div key={date} className="relative pl-12">
               {/* Vertical Timeline Line */}
-              <div className="absolute left-5 top-0 bottom-[-40px] w-0.5 bg-stone-200/60" />
+              <div className={cn("absolute left-5 top-0 w-0.5 bg-stone-200/60", dayIdx < groupedByDay.length - 1 ? "bottom-[-40px]" : "bottom-4")} />
               
               {/* Day Label */}
               <div className="sticky top-0 z-20 flex items-center gap-3 mb-6 bg-stone-50/90 backdrop-blur-sm py-2">

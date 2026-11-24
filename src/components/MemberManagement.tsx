@@ -740,7 +740,7 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
                 <th className="px-2 sm:px-4 xl:px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500 whitespace-nowrap hidden lg:table-cell">
                   飲食偏好
                 </th>
-                <th className="sticky right-0 z-10 bg-stone-50/95 backdrop-blur-xs shadow-[-6px_0_12px_-6px_rgba(0,0,0,0.06)] px-3 sm:px-4 xl:px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500 whitespace-nowrap text-right">
+                <th className="sticky right-0 z-20 bg-stone-50/95 backdrop-blur-xs shadow-[-6px_0_12px_-6px_rgba(0,0,0,0.06)] px-3 sm:px-4 xl:px-6 py-4 text-xs font-bold uppercase tracking-wider text-stone-500 whitespace-nowrap text-right">
                   操作
                 </th>
               </tr>
