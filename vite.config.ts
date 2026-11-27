@@ -25,7 +25,7 @@ export default defineConfig(({command}) => {
           manualChunks(id) {
             if (!id.includes('node_modules')) return;
             if (id.includes('firebase')) return 'firebase-vendor';
-            if (id.includes('xlsx')) return 'xlsx-vendor';
+            if (id.includes('read-excel-file') || id.includes('papaparse') || id.includes('fflate')) return 'spreadsheet-vendor';
             if (id.includes('recharts') || id.includes('d3-')) return 'charts-vendor';
             if (id.includes('qrcode') || id.includes('@yudiel/react-qr-scanner')) return 'qr-vendor';
             if (id.includes('framer-motion') || id.includes('motion') || id.includes('lucide-react') || id.includes('date-fns')) return 'ui-vendor';

@@ -35,10 +35,12 @@ export default class ErrorBoundary extends React.Component<Props, State> {
       return (
         <div className="min-h-screen flex items-center justify-center bg-stone-50 p-6">
           <div className="max-w-md w-full bg-white rounded-3xl p-8 shadow-sm border border-stone-200 text-center">
-            <h2 className="text-2xl font-serif mb-4">Something went wrong</h2>
+            <h2 className="text-2xl font-serif mb-4">系統發生異常</h2>
             <div className="bg-red-50 text-red-700 p-4 rounded-xl text-sm mb-6 text-left overflow-auto max-h-48">
               <pre className="whitespace-pre-wrap">
-                {this.state.error?.message}
+                {(import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV
+                  ? (this.state.error?.message || '未知錯誤')
+                  : '系統發生未預期的錯誤，請重新整理頁面後再試。'}
               </pre>
             </div>
             <button

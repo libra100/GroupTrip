@@ -6,9 +6,9 @@ import {
   setDoc,
   updateDoc,
   deleteDoc,
+  getDoc,
   getDocs,
-  query,
-  where,
+  writeBatch,
   arrayUnion,
   arrayRemove
 } from 'firebase/firestore';
@@ -32,8 +32,8 @@ import {
   Sparkles,
   Crown
 } from 'lucide-react';
-import { Trip } from '../types';
-import { db, tripDoc } from '../firebase';
+import { Trip, TripInvite } from '../types';
+import { db, tripCollection, tripDoc } from '../firebase';
 import { cn } from '../lib/utils';
 import {
   ParsedTripProposal,
@@ -55,13 +55,102 @@ interface TripSwitcherModalProps {
 }
 
 const INVITE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const MIN_SECURE_INVITE_LENGTH = 12;
+const JOIN_THROTTLE_KEY = 'grouptrip_join_attempts_v1';
+const MAX_JOIN_FAILURES = 5;
+const JOIN_LOCKOUT_MS = 15 * 60 * 1000;
 
-export function generateInviteCode(length = 6): string {
+export function generateInviteCode(length = MIN_SECURE_INVITE_LENGTH): string {
+  const bytes = new Uint8Array(length);
+  if (typeof globalThis.crypto?.getRandomValues === 'function') {
+    globalThis.crypto.getRandomValues(bytes);
+  } else {
+    throw new Error('瀏覽器環境不支援加密安全亂數產生器，無法建立邀請碼。');
+  }
   let result = '';
   for (let i = 0; i < length; i++) {
-    result += INVITE_CHARS.charAt(Math.floor(Math.random() * INVITE_CHARS.length));
+    // INVITE_CHARS.length is 32, so (bytes[i] & 31) has zero modulo bias
+    result += INVITE_CHARS.charAt(bytes[i] & 31);
   }
   return result;
+}
+
+function getJoinFailureState(): { count: number; resetAt: number } {
+  try {
+    const raw = sessionStorage.getItem(JOIN_THROTTLE_KEY);
+    if (!raw) return { count: 0, resetAt: 0 };
+    const parsed = JSON.parse(raw) as { count?: number; resetAt?: number };
+    if (!parsed.resetAt || Date.now() >= parsed.resetAt) {
+      sessionStorage.removeItem(JOIN_THROTTLE_KEY);
+      return { count: 0, resetAt: 0 };
+    }
+    return { count: parsed.count || 0, resetAt: parsed.resetAt };
+  } catch {
+    return { count: 0, resetAt: 0 };
+  }
+}
+
+function recordJoinFailure(): void {
+  try {
+    const current = getJoinFailureState();
+    const next = {
+      count: current.count + 1,
+      resetAt: current.resetAt > Date.now() ? current.resetAt : Date.now() + JOIN_LOCKOUT_MS,
+    };
+    sessionStorage.setItem(JOIN_THROTTLE_KEY, JSON.stringify(next));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+function clearJoinFailures(): void {
+  try {
+    sessionStorage.removeItem(JOIN_THROTTLE_KEY);
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+export async function joinTripByInviteCode(
+  rawCode: string,
+  user: User,
+  existingTripIds?: Set<string>
+): Promise<{ tripId: string; tripName: string; alreadyMember: boolean }> {
+  const throttle = getJoinFailureState();
+  if (throttle.count >= MAX_JOIN_FAILURES) {
+    throw new Error('邀請碼嘗試失敗次數過多，請於 15 分鐘後再試，或聯繫行程建立者以 Email 加入共編。');
+  }
+
+  const code = rawCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (code.length < MIN_SECURE_INVITE_LENGTH) {
+    throw new Error('基於安全考量，僅支援 12 碼以上新版安全邀請碼；若為舊行程，請建立者於「共用與協作者」重新產生邀請碼。');
+  }
+
+  const inviteSnap = await getDoc(doc(db, 'tripInvites', code));
+  if (!inviteSnap.exists()) {
+    recordJoinFailure();
+    throw new Error('找不到符合此邀請碼的行程，請確認邀請碼是否正確或已更新。');
+  }
+
+  const invite = inviteSnap.data() as TripInvite;
+  clearJoinFailures();
+
+  if (existingTripIds?.has(invite.tripId)) {
+    return { tripId: invite.tripId, tripName: invite.tripName, alreadyMember: true };
+  }
+
+  const emailLower = (user.email || '').trim().toLowerCase();
+  const updates: Record<string, any> = {
+    memberUids: arrayUnion(user.uid),
+    lastJoinProof: `${code}:${user.uid}`,
+    updatedAt: new Date().toISOString(),
+  };
+  if (emailLower) {
+    updates.collaboratorEmails = arrayUnion(emailLower);
+  }
+
+  await updateDoc(doc(db, 'trips', invite.tripId), updates);
+  return { tripId: invite.tripId, tripName: invite.tripName, alreadyMember: false };
 }
 
 export default function TripSwitcherModal({
@@ -150,6 +239,7 @@ export default function TripSwitcherModal({
     try {
       const newTripRef = doc(collection(db, 'trips'));
       const nowIso = new Date().toISOString();
+      const inviteCode = generateInviteCode(MIN_SECURE_INVITE_LENGTH);
       const newTripPayload: Trip = {
         id: newTripRef.id,
         name: trimmedName,
@@ -161,13 +251,19 @@ export default function TripSwitcherModal({
         ownerName: currentUser.displayName || userEmailLower || '建立者',
         memberUids: [currentUser.uid],
         collaboratorEmails: userEmailLower ? [userEmailLower] : [],
-        inviteCode: generateInviteCode(),
+        inviteCode,
         createdAt: nowIso,
         updatedAt: nowIso
       };
 
       // Write parent trip document first so subcollection security rules can evaluate ownership
       await setDoc(newTripRef, newTripPayload);
+      await setDoc(doc(db, 'tripInvites', inviteCode), {
+        tripId: newTripRef.id,
+        tripName: newTripPayload.name,
+        ownerId: currentUser.uid,
+        createdAt: nowIso
+      });
       await setDoc(tripDoc('settings', 'tripSettings', newTripRef.id), {
         startDate: newStartDate,
         endDate: newEndDate,
@@ -192,6 +288,7 @@ export default function TripSwitcherModal({
     try {
       const newTripRef = doc(collection(db, 'trips'));
       const nowIso = new Date().toISOString();
+      const inviteCode = generateInviteCode(MIN_SECURE_INVITE_LENGTH);
       const newTripPayload: Trip = {
         id: newTripRef.id,
         name: proposal.name.trim(),
@@ -203,7 +300,7 @@ export default function TripSwitcherModal({
         ownerName: currentUser.displayName || userEmailLower || '建立者',
         memberUids: [currentUser.uid],
         collaboratorEmails: userEmailLower ? [userEmailLower] : [],
-        inviteCode: generateInviteCode(),
+        inviteCode,
         createdAt: nowIso,
         updatedAt: nowIso
       };
@@ -211,6 +308,12 @@ export default function TripSwitcherModal({
       // Write parent trip document first so subcollection security rules allow writing child docs
       const officialStart = proposal.officialStartDate || proposal.startDate;
       await setDoc(newTripRef, newTripPayload);
+      await setDoc(doc(db, 'tripInvites', inviteCode), {
+        tripId: newTripRef.id,
+        tripName: newTripPayload.name,
+        ownerId: currentUser.uid,
+        createdAt: nowIso
+      });
       await setDoc(tripDoc('settings', 'tripSettings', newTripRef.id), {
         startDate: proposal.startDate,
         endDate: proposal.endDate,
@@ -283,6 +386,10 @@ export default function TripSwitcherModal({
   };
 
   const handleDeleteTrip = async (trip: Trip) => {
+    if (trip.ownerId !== currentUser.uid) {
+      setErrorMsg('僅行程建立者可刪除此行程。');
+      return;
+    }
     if (confirmDeleteId !== trip.id) {
       setConfirmDeleteId(trip.id);
       return;
@@ -290,9 +397,27 @@ export default function TripSwitcherModal({
     setBusy(true);
     setErrorMsg(null);
     try {
+      const subcollections = ['members', 'groups', 'itineraries', 'rollcalls', 'settings'] as const;
+      for (const sub of subcollections) {
+        const snap = await getDocs(tripCollection(sub, trip.id));
+        if (!snap.empty) {
+          for (let i = 0; i < snap.docs.length; i += 400) {
+            const batch = writeBatch(db);
+            snap.docs.slice(i, i + 400).forEach((d) => batch.delete(d.ref));
+            await batch.commit();
+          }
+        }
+      }
+      if (trip.inviteCode && trip.inviteCode.length >= MIN_SECURE_INVITE_LENGTH) {
+        try {
+          await deleteDoc(doc(db, 'tripInvites', trip.inviteCode));
+        } catch {
+          // Best-effort invite capability cleanup
+        }
+      }
       await deleteDoc(doc(db, 'trips', trip.id));
       setConfirmDeleteId(null);
-      setStatusMsg(`已刪除「${trip.name}」`);
+      setStatusMsg(`已永久刪除「${trip.name}」及所有團員與行程資料`);
     } catch (err: any) {
       setErrorMsg(err?.message || '刪除行程失敗（僅建立者可刪除）。');
     } finally {
@@ -308,7 +433,7 @@ export default function TripSwitcherModal({
         memberUids: arrayRemove(currentUser.uid),
         updatedAt: new Date().toISOString()
       };
-      if (userEmailLower) {
+      if (userEmailLower && userEmailLower !== trip.ownerEmail.toLowerCase()) {
         updates.collaboratorEmails = arrayRemove(userEmailLower);
       }
       await updateDoc(doc(db, 'trips', trip.id), updates);
@@ -322,8 +447,7 @@ export default function TripSwitcherModal({
 
   const handleJoinByCode = async (e: React.FormEvent) => {
     e.preventDefault();
-    const code = joinCodeInput.trim().toUpperCase();
-    if (!code) {
+    if (!joinCodeInput.trim()) {
       setErrorMsg('請輸入邀請碼。');
       return;
     }
@@ -331,27 +455,13 @@ export default function TripSwitcherModal({
     setBusy(true);
     setErrorMsg(null);
     try {
-      const q = query(collection(db, 'trips'), where('inviteCode', '==', code));
-      const snap = await getDocs(q);
-      if (snap.empty) {
-        setErrorMsg('找不到符合此邀請碼的行程，請確認大小寫或聯繫分享者。');
-        return;
-      }
-
-      const targetDoc = snap.docs[0];
-      const updates: Record<string, any> = {
-        memberUids: arrayUnion(currentUser.uid),
-        updatedAt: new Date().toISOString()
-      };
-      if (userEmailLower) {
-        updates.collaboratorEmails = arrayUnion(userEmailLower);
-      }
-      await updateDoc(doc(db, 'trips', targetDoc.id), updates);
+      const existingIds = new Set(trips.map((t) => t.id));
+      const { tripId } = await joinTripByInviteCode(joinCodeInput, currentUser, existingIds);
       setJoinCodeInput('');
-      onSelectTrip(targetDoc.id);
+      onSelectTrip(tripId);
       onClose();
     } catch (err: any) {
-      setErrorMsg(err?.message || '加入行程失敗，請確認網路與登入狀態。');
+      setErrorMsg(err?.message || '加入行程失敗，請確認邀請碼與登入狀態。');
     } finally {
       setBusy(false);
     }
@@ -359,15 +469,34 @@ export default function TripSwitcherModal({
 
   const handleRegenerateInviteCode = async () => {
     if (!activeTrip) return;
+    if (activeTrip.ownerId !== currentUser.uid) {
+      setErrorMsg('僅行程建立者可重新產生邀請碼。');
+      return;
+    }
     setBusy(true);
     setErrorMsg(null);
     try {
-      const nextCode = generateInviteCode();
+      const oldCode = activeTrip.inviteCode;
+      const nextCode = generateInviteCode(MIN_SECURE_INVITE_LENGTH);
+      const nowIso = new Date().toISOString();
       await updateDoc(doc(db, 'trips', activeTrip.id), {
         inviteCode: nextCode,
-        updatedAt: new Date().toISOString()
+        updatedAt: nowIso
       });
-      setStatusMsg(`已更新邀請碼為 ${nextCode}`);
+      await setDoc(doc(db, 'tripInvites', nextCode), {
+        tripId: activeTrip.id,
+        tripName: activeTrip.name,
+        ownerId: currentUser.uid,
+        createdAt: nowIso
+      });
+      if (oldCode && oldCode.length >= MIN_SECURE_INVITE_LENGTH) {
+        try {
+          await deleteDoc(doc(db, 'tripInvites', oldCode));
+        } catch {
+          // Best-effort cleanup of superseded invite code
+        }
+      }
+      setStatusMsg(`已更新安全邀請碼為 ${nextCode}`);
     } catch (err: any) {
       setErrorMsg(err?.message || '重新產生邀請碼失敗。');
     } finally {
@@ -378,6 +507,10 @@ export default function TripSwitcherModal({
   const handleAddCollaborator = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeTrip) return;
+    if (activeTrip.ownerId !== currentUser.uid) {
+      setErrorMsg('僅行程建立者可新增共編協作者。');
+      return;
+    }
     const email = collabEmailInput.trim().toLowerCase();
     if (!email || !email.includes('@')) {
       setErrorMsg('請輸入有效的 Google Email 地址。');
@@ -401,6 +534,10 @@ export default function TripSwitcherModal({
 
   const handleRemoveCollaborator = async (email: string) => {
     if (!activeTrip) return;
+    if (activeTrip.ownerId !== currentUser.uid) {
+      setErrorMsg('僅行程建立者可移除共編協作者。');
+      return;
+    }
     if (email.toLowerCase() === activeTrip.ownerEmail.toLowerCase()) return;
     setBusy(true);
     setErrorMsg(null);
@@ -424,7 +561,9 @@ export default function TripSwitcherModal({
     { id: 'share', label: '共用與協作者', icon: Share2 }
   ];
 
-  const shareUrl = activeTrip
+  const isActiveOwner = Boolean(activeTrip && activeTrip.ownerId === currentUser.uid);
+  const isLegacyShortInvite = Boolean(activeTrip && activeTrip.inviteCode.length < MIN_SECURE_INVITE_LENGTH);
+  const shareUrl = activeTrip && !isLegacyShortInvite
     ? `${window.location.origin}${window.location.pathname}?join=${activeTrip.inviteCode}`
     : '';
 
@@ -830,7 +969,7 @@ export default function TripSwitcherModal({
                 </div>
                 <h4 className="font-serif font-bold text-lg text-stone-900">透過邀請碼加入共同管理</h4>
                 <p className="text-xs text-stone-500">
-                  向行程建立者取得 6 碼邀請碼或點選分享連結，即可即時共編該旅遊團的名單與行程。
+                  向行程建立者取得 12 碼安全邀請碼或點選分享連結，即可即時共編該旅遊團的名單與行程。
                 </p>
               </div>
 
@@ -840,9 +979,9 @@ export default function TripSwitcherModal({
                   required
                   value={joinCodeInput}
                   onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())}
-                  placeholder="輸入邀請碼（例如 GT2026）"
-                  maxLength={12}
-                  className="w-full px-4 py-3.5 rounded-2xl bg-stone-50 border border-stone-200 text-center text-lg font-mono font-black tracking-[0.25em] uppercase focus:outline-none focus:ring-2 focus:ring-[#00F3FF]/50"
+                  placeholder="輸入 12 碼安全邀請碼"
+                  maxLength={24}
+                  className="w-full px-4 py-3.5 rounded-2xl bg-stone-50 border border-stone-200 text-center text-base sm:text-lg font-mono font-black tracking-[0.2em] uppercase focus:outline-none focus:ring-2 focus:ring-[#00F3FF]/50"
                 />
               </div>
 
@@ -866,50 +1005,62 @@ export default function TripSwitcherModal({
               <div className="space-y-6">
                 {/* Invite Code & Share Link Box */}
                 <div className="p-5 rounded-2xl bg-stone-50 border border-stone-200 space-y-4">
+                  {isLegacyShortInvite && (
+                    <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-bold">
+                      此行程目前使用舊版短邀請碼，基於安全考量已停用短碼加入功能；{isActiveOwner ? '請點選右方「重新產生」升級為 12 碼高強度安全邀請碼。' : '請聯繫行程建立者升級為 12 碼安全邀請碼。'}
+                    </div>
+                  )}
+
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
                       <p className="text-[10px] font-black uppercase tracking-widest text-stone-400">
                         專屬邀請碼（{activeTrip.name}）
                       </p>
-                      <div className="text-3xl font-mono font-black tracking-[0.2em] text-stone-900 mt-1">
+                      <div className="text-2xl sm:text-3xl font-mono font-black tracking-[0.16em] text-stone-900 mt-1 break-all">
                         {activeTrip.inviteCode}
                       </div>
                     </div>
 
                     <div className="flex items-center gap-2 flex-wrap">
-                      <button
-                        type="button"
-                        onClick={() => handleCopy(activeTrip.inviteCode, 'code')}
-                        className="px-3.5 py-2 rounded-xl bg-stone-900 text-white text-xs font-bold inline-flex items-center gap-1.5 hover:bg-stone-800"
-                      >
-                        {copiedType === 'code' ? <Check className="w-3.5 h-3.5 text-[#00F3FF]" /> : <Copy className="w-3.5 h-3.5" />}
-                        {copiedType === 'code' ? '已複製邀請碼' : '複製邀請碼'}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={handleRegenerateInviteCode}
-                        className="px-3.5 py-2 rounded-xl bg-white border border-stone-200 text-stone-700 text-xs font-bold inline-flex items-center gap-1.5 hover:bg-stone-100 disabled:opacity-50"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5" />
-                        重新產生
-                      </button>
+                      {!isLegacyShortInvite && (
+                        <button
+                          type="button"
+                          onClick={() => handleCopy(activeTrip.inviteCode, 'code')}
+                          className="px-3.5 py-2 rounded-xl bg-stone-900 text-white text-xs font-bold inline-flex items-center gap-1.5 hover:bg-stone-800"
+                        >
+                          {copiedType === 'code' ? <Check className="w-3.5 h-3.5 text-[#00F3FF]" /> : <Copy className="w-3.5 h-3.5" />}
+                          {copiedType === 'code' ? '已複製邀請碼' : '複製邀請碼'}
+                        </button>
+                      )}
+                      {isActiveOwner && (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={handleRegenerateInviteCode}
+                          className="px-3.5 py-2 rounded-xl bg-white border border-stone-200 text-stone-700 text-xs font-bold inline-flex items-center gap-1.5 hover:bg-stone-100 disabled:opacity-50"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          重新產生
+                        </button>
+                      )}
                     </div>
                   </div>
 
-                  <div className="pt-3 border-t border-stone-200/80 flex flex-col sm:flex-row sm:items-center gap-2">
-                    <div className="flex-1 px-3 py-2 rounded-xl bg-white border border-stone-200 text-xs font-mono text-stone-600 truncate">
-                      {shareUrl}
+                  {shareUrl && (
+                    <div className="pt-3 border-t border-stone-200/80 flex flex-col sm:flex-row sm:items-center gap-2">
+                      <div className="flex-1 px-3 py-2 rounded-xl bg-white border border-stone-200 text-xs font-mono text-stone-600 truncate">
+                        {shareUrl}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(shareUrl, 'link')}
+                        className="px-3.5 py-2 rounded-xl bg-white border border-stone-200 text-stone-800 text-xs font-bold inline-flex items-center justify-center gap-1.5 hover:border-stone-400 whitespace-nowrap"
+                      >
+                        {copiedType === 'link' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Link2 className="w-3.5 h-3.5" />}
+                        {copiedType === 'link' ? '已複製分享連結' : '複製分享連結'}
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleCopy(shareUrl, 'link')}
-                      className="px-3.5 py-2 rounded-xl bg-white border border-stone-200 text-stone-800 text-xs font-bold inline-flex items-center justify-center gap-1.5 hover:border-stone-400 whitespace-nowrap"
-                    >
-                      {copiedType === 'link' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Link2 className="w-3.5 h-3.5" />}
-                      {copiedType === 'link' ? '已複製分享連結' : '複製分享連結'}
-                    </button>
-                  </div>
+                  )}
                 </div>
 
                 {/* Email Collaborator Management */}
@@ -918,22 +1069,28 @@ export default function TripSwitcherModal({
                     <Mail className="w-4 h-4" /> Email 共編授權清單
                   </h4>
 
-                  <form onSubmit={handleAddCollaborator} className="flex flex-col sm:flex-row gap-2">
-                    <input
-                      type="email"
-                      value={collabEmailInput}
-                      onChange={(e) => setCollabEmailInput(e.target.value)}
-                      placeholder="輸入對方的 Google Email（例如 teammate@gmail.com）"
-                      className="flex-1 px-4 py-2.5 rounded-xl bg-stone-50 border border-stone-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#00F3FF]/40"
-                    />
-                    <button
-                      type="submit"
-                      disabled={busy}
-                      className="px-5 py-2.5 rounded-xl bg-stone-900 text-white text-xs font-bold hover:bg-stone-800 disabled:opacity-50 whitespace-nowrap"
-                    >
-                      加入共編授權
-                    </button>
-                  </form>
+                  {isActiveOwner ? (
+                    <form onSubmit={handleAddCollaborator} className="flex flex-col sm:flex-row gap-2">
+                      <input
+                        type="email"
+                        value={collabEmailInput}
+                        onChange={(e) => setCollabEmailInput(e.target.value)}
+                        placeholder="輸入對方的 Google Email（例如 teammate@gmail.com）"
+                        className="flex-1 px-4 py-2.5 rounded-xl bg-stone-50 border border-stone-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#00F3FF]/40"
+                      />
+                      <button
+                        type="submit"
+                        disabled={busy}
+                        className="px-5 py-2.5 rounded-xl bg-stone-900 text-white text-xs font-bold hover:bg-stone-800 disabled:opacity-50 whitespace-nowrap"
+                      >
+                        加入共編授權
+                      </button>
+                    </form>
+                  ) : (
+                    <p className="text-xs text-stone-500 bg-stone-50 border border-stone-200/80 rounded-xl px-3.5 py-2.5">
+                      僅行程建立者可管理協作者權限與重設邀請碼。
+                    </p>
+                  )}
 
                   <div className="divide-y divide-stone-100 border border-stone-200 rounded-2xl overflow-hidden bg-white">
                     {(activeTrip.collaboratorEmails || []).map((email) => {
@@ -951,7 +1108,7 @@ export default function TripSwitcherModal({
                               </span>
                             )}
                           </div>
-                          {!isOwnerEmail && (
+                          {isActiveOwner && !isOwnerEmail && (
                             <button
                               type="button"
                               disabled={busy}

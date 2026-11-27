@@ -24,7 +24,8 @@ import {
 } from 'lucide-react';
 import { ItineraryType } from '../types';
 import {
-  CUSTOM_GEMINI_KEY_STORAGE,
+  getSessionGeminiKey,
+  setSessionGeminiKey,
   ParsedItineraryItem,
   ParsedMemberItem,
   ParsedTripProposal,
@@ -87,11 +88,7 @@ export default function AiProposalParserPanel({
     defaultStartDate || format(new Date(), 'yyyy-MM-dd')
   );
   const [showApiKeyConfig, setShowApiKeyConfig] = useState(false);
-  const [customApiKey, setCustomApiKey] = useState(() =>
-    typeof window !== 'undefined'
-      ? localStorage.getItem(CUSTOM_GEMINI_KEY_STORAGE) || ''
-      : ''
-  );
+  const [customApiKey, setCustomApiKey] = useState(() => getSessionGeminiKey());
 
   const [isParsing, setIsParsing] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
@@ -127,13 +124,7 @@ export default function AiProposalParserPanel({
 
   const handleApiKeyChange = (val: string) => {
     setCustomApiKey(val);
-    if (typeof window !== 'undefined') {
-      if (val.trim()) {
-        localStorage.setItem(CUSTOM_GEMINI_KEY_STORAGE, val.trim());
-      } else {
-        localStorage.removeItem(CUSTOM_GEMINI_KEY_STORAGE);
-      }
-    }
+    setSessionGeminiKey(val);
   };
 
   const handleStartParse = async () => {
@@ -434,7 +425,7 @@ export default function AiProposalParserPanel({
               ref={fileInputRef}
               type="file"
               multiple
-              accept="image/*,.pdf,.xlsx,.xls,.csv,.txt,.md"
+              accept="image/*,.pdf,.xlsx,.csv,.txt,.md"
               onChange={(e) => {
                 handleFilesSelected(e.target.files);
                 e.target.value = '';
@@ -550,7 +541,7 @@ export default function AiProposalParserPanel({
           {showApiKeyConfig && (
             <div className="p-3.5 rounded-2xl bg-stone-50 border border-stone-200 space-y-1.5">
               <label className="text-[10px] font-bold uppercase tracking-wider text-stone-500 block">
-                自訂 Gemini API Key（圖片／PDF 辨識建議填入，僅存於本機瀏覽器；TXT／CSV／Excel／貼上文字支援免金鑰解析）
+                自訂 Gemini API Key（圖片／PDF 辨識建議填入，僅暫存於目前分頁，關閉分頁即自動清除；TXT／CSV／Excel／貼上文字支援免金鑰解析）
               </label>
               <input
                 type="password"

@@ -82,6 +82,14 @@ export interface Trip {
   memberUids: string[];
   collaboratorEmails: string[];
   inviteCode: string;
+  lastJoinProof?: string;
   createdAt: string;
   updatedAt?: string;
+}
+
+export interface TripInvite {
+  tripId: string;
+  tripName: string;
+  ownerId: string;
+  createdAt: string;
 }

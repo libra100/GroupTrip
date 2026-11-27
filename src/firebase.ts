@@ -95,5 +95,13 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   };
   const errorString = JSON.stringify(sanitizedErrInfo);
   console.error('Firestore Error: ', errorString);
-  alert(`操作失敗 (Operation Failed): ${errInfo.error}`);
+  const rawCode = (error as { code?: string })?.code || '';
+  const rawMsg = errInfo.error.toLowerCase();
+  let friendlyMessage = '操作失敗，請稍後再試或重新整理頁面。';
+  if (rawCode === 'permission-denied' || rawMsg.includes('permission-denied') || rawMsg.includes('insufficient permissions')) {
+    friendlyMessage = '權限不足，請確認您已登入且為此行程的協作者。';
+  } else if (rawCode === 'unavailable' || rawMsg.includes('unavailable') || rawMsg.includes('network')) {
+    friendlyMessage = '無法連線至伺服器，請檢查網路後重試。';
+  }
+  alert(friendlyMessage);
 }

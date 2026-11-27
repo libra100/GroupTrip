@@ -31,7 +31,7 @@ import {
   WriteBatch
 } from 'firebase/firestore';
 import { db, tripCollection, tripDoc, handleFirestoreError, OperationType } from '../firebase';
-import * as XLSX from 'xlsx';
+import { parseSpreadsheetToRows } from '../lib/spreadsheet';
 import { QRCodeSVG } from 'qrcode.react';
 import JSZip from 'jszip';
 import QRCodePackage from 'qrcode';
@@ -355,24 +355,13 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
     URL.revokeObjectURL(url);
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = async (evt) => {
-      let wb;
-      if (file.name.toLowerCase().endsWith('.csv')) {
-        const rawText = String(evt.target?.result || '').replace(/^\uFEFF/, '');
-        wb = XLSX.read(rawText, { type: 'string', raw: true });
-      } else {
-        const buffer = evt.target?.result as ArrayBuffer;
-        wb = XLSX.read(buffer, { type: 'array' });
-      }
-      const wsname = wb.SheetNames[0];
-      const ws = wb.Sheets[wsname];
-      const data = XLSX.utils.sheet_to_json(ws, { defval: '' }) as Record<string, unknown>[];
-
+    try {
+      const data = await parseSpreadsheetToRows(file);
       const operations: Array<(batch: WriteBatch) => void> = [];
 
       data.forEach((rawRow) => {
@@ -443,26 +432,16 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
         });
       });
 
-      try {
-        if (operations.length === 0) {
-          alert(`沒有找到可匯入的有效名單！讀取到的總列數：${data.length}。請確認檔案格式或表頭。`);
-          return;
-        }
-        await commitInChunks(operations);
-        alert(`成功匯入了 ${operations.length} 位成員！`);
-      } catch (error) {
-        console.error('Error batch importing members:', error);
-        alert('匯入失敗，請確認資料結構或登入權限。');
+      if (operations.length === 0) {
+        alert(`沒有找到可匯入的有效名單！讀取到的總列數：${data.length}。請確認檔案格式或表頭。`);
+        return;
       }
-    };
-
-    if (file.name.toLowerCase().endsWith('.csv')) {
-      reader.readAsText(file, 'UTF-8');
-    } else {
-      reader.readAsArrayBuffer(file);
+      await commitInChunks(operations);
+      alert(`成功匯入了 ${operations.length} 位成員！`);
+    } catch (error: any) {
+      console.error('Error batch importing members:', error);
+      alert(error?.message || '匯入失敗，請確認檔案格式、大小上限或登入權限。');
     }
-
-    e.target.value = '';
   };
 
   const handleDownloadQrCode = (member: Member) => {
@@ -627,7 +606,7 @@ export default function MemberManagement({ members, groups, itineraries, tripSet
           <label className="flex items-center gap-2 bg-white border border-stone-200 px-4 py-2 rounded-full text-sm font-medium cursor-pointer hover:bg-stone-50 transition-colors shadow-sm whitespace-nowrap">
             <Upload className="w-4 h-4" />
             批次匯入名單
-            <input type="file" className="hidden" accept=".xlsx, .xls, .csv" onChange={handleFileUpload} />
+            <input type="file" className="hidden" accept=".xlsx, .csv" onChange={handleFileUpload} />
           </label>
 
           <button

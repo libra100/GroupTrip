@@ -6,6 +6,7 @@ import {
   getRedirectResult,
   browserPopupRedirectResolver,
   signInWithEmailAndPassword,
+  sendEmailVerification,
   GoogleAuthProvider,
   signOut,
   User
@@ -15,18 +16,11 @@ import {
   onSnapshot,
   query,
   orderBy,
-  doc,
-  where,
-  getDocs,
-  getDoc,
-  setDoc,
-  updateDoc,
-  writeBatch,
-  arrayUnion
+  where
 } from 'firebase/firestore';
 import { auth, db, setActiveTripId, tripCollection, tripDoc } from './firebase';
 import { Trip, Member, Group, Itinerary, RollCall, TripSettings } from './types';
-import TripSwitcherModal, { type TripModalTab } from './components/TripSwitcherModal';
+import TripSwitcherModal, { joinTripByInviteCode, type TripModalTab } from './components/TripSwitcherModal';
 import {
   Users,
   Calendar,
@@ -61,18 +55,6 @@ const LEGACY_TRIP_ID = 'legacy-main-trip';
 const PENDING_JOIN_KEY = 'grouptrip_pending_join';
 const ACTIVE_TRIP_STORAGE_PREFIX = 'grouptrip_active_trip_';
 
-async function commitOperationsInChunks(
-  ops: Array<(batch: ReturnType<typeof writeBatch>) => void>,
-  chunkSize = 400
-) {
-  for (let i = 0; i < ops.length; i += chunkSize) {
-    const batch = writeBatch(db);
-    const slice = ops.slice(i, i + chunkSize);
-    slice.forEach((op) => op(batch));
-    await batch.commit();
-  }
-}
-
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -89,6 +71,8 @@ export default function App() {
   const [tripModalOpen, setTripModalOpen] = useState(false);
   const [tripModalTab, setTripModalTab] = useState<TripModalTab>('list');
   const [joinNotice, setJoinNotice] = useState<string | null>(null);
+  const [verificationNotice, setVerificationNotice] = useState<string | null>(null);
+  const [sendingVerification, setSendingVerification] = useState(false);
 
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(() =>
@@ -150,9 +134,9 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Multi-trip workspace subscription, one-time legacy data migration & share-link auto-join
+  // Multi-trip workspace subscription & share-link auto-join (verified users only)
   useEffect(() => {
-    if (!user) {
+    if (!user || !user.emailVerified) {
       setTrips([]);
       setTripsLoading(false);
       setActiveTripId(null);
@@ -162,12 +146,37 @@ export default function App() {
     }
 
     let cancelled = false;
+    let joinChecked = false;
     setTripsLoading(true);
 
     const uidTripsMap = new Map<string, Trip>();
     const emailTripsMap = new Map<string, Trip>();
     let uidLoaded = false;
     let emailLoaded = !user.email;
+
+    const handlePendingJoinLink = async (existingTripIds: Set<string>) => {
+      const pendingCode = sessionStorage.getItem(PENDING_JOIN_KEY);
+      if (!pendingCode) return;
+      sessionStorage.removeItem(PENDING_JOIN_KEY);
+      try {
+        const result = await joinTripByInviteCode(pendingCode, user, existingTripIds);
+        if (!cancelled) {
+          localStorage.setItem(`${ACTIVE_TRIP_STORAGE_PREFIX}${user.uid}`, result.tripId);
+          setActiveTripId(result.tripId);
+          setActiveTripState(result.tripId);
+          setJoinNotice(
+            result.alreadyMember
+              ? `您已是「${result.tripName}」的協作者，已為您切換至此行程！`
+              : `已透過安全邀請碼加入「${result.tripName}」！`
+          );
+        }
+      } catch (err: any) {
+        console.error('Auto-join via invite link failed:', err);
+        if (!cancelled) {
+          setJoinNotice(err?.message || '邀請碼無效、已更新或行程已不存在。');
+        }
+      }
+    };
 
     const recomputeTrips = () => {
       if (cancelled) return;
@@ -184,6 +193,10 @@ export default function App() {
       setTrips(merged);
       if (uidLoaded && emailLoaded) {
         setTripsLoading(false);
+        if (!joinChecked) {
+          joinChecked = true;
+          void handlePendingJoinLink(new Set(mergedMap.keys()));
+        }
       }
 
       setActiveTripState((prev) => {
@@ -204,124 +217,6 @@ export default function App() {
         return fallback;
       });
     };
-
-    const migrateLegacyTripIfNeeded = async () => {
-      try {
-        const legacyTripRef = doc(db, 'trips', LEGACY_TRIP_ID);
-        const legacySnap = await getDoc(legacyTripRef);
-        if (legacySnap.exists()) return;
-
-        const [rootMembersSnap, rootSettingsSnap] = await Promise.all([
-          getDocs(collection(db, 'members')),
-          getDoc(doc(db, 'settings', 'tripSettings'))
-        ]);
-
-        if (rootMembersSnap.empty && !rootSettingsSnap.exists()) return;
-
-        const [rootGroupsSnap, rootItinerariesSnap, rootRollCallsSnap] = await Promise.all([
-          getDocs(collection(db, 'groups')),
-          getDocs(collection(db, 'itineraries')),
-          getDocs(collection(db, 'rollcalls'))
-        ]);
-
-        const settingsData = rootSettingsSnap.exists()
-          ? (rootSettingsSnap.data() as TripSettings)
-          : null;
-        const ownerEmail = (user.email || 'leo135768leo@gmail.com').toLowerCase();
-        const collabEmails = Array.from(new Set([ownerEmail, 'leo135768leo@gmail.com']));
-        const nowIso = new Date().toISOString();
-
-        // Create parent trip doc first so subcollection security rules allow writing child docs
-        await setDoc(legacyTripRef, {
-          id: LEGACY_TRIP_ID,
-          name: '2026 團體旅遊（原預設行程）',
-          description: '由既有團員與行程資料獨立保留之旅遊行程',
-          startDate: settingsData?.startDate || '2026-05-01',
-          endDate: settingsData?.endDate || '2026-05-09',
-          ownerId: user.uid,
-          ownerEmail,
-          ownerName: user.displayName || ownerEmail,
-          memberUids: [user.uid],
-          collaboratorEmails: collabEmails,
-          inviteCode: 'GT2026',
-          createdAt: nowIso,
-          updatedAt: nowIso
-        });
-
-        const ops: Array<(batch: ReturnType<typeof writeBatch>) => void> = [];
-        if (rootSettingsSnap.exists()) {
-          const settingsPayload = rootSettingsSnap.data();
-          ops.push((batch) => {
-            batch.set(tripDoc('settings', 'tripSettings', LEGACY_TRIP_ID), settingsPayload);
-          });
-        }
-        rootGroupsSnap.forEach((d) => {
-          const data = d.data();
-          ops.push((batch) => {
-            batch.set(tripDoc('groups', d.id, LEGACY_TRIP_ID), data);
-          });
-        });
-        rootMembersSnap.forEach((d) => {
-          const data = d.data();
-          ops.push((batch) => {
-            batch.set(tripDoc('members', d.id, LEGACY_TRIP_ID), data);
-          });
-        });
-        rootItinerariesSnap.forEach((d) => {
-          const data = d.data();
-          ops.push((batch) => {
-            batch.set(tripDoc('itineraries', d.id, LEGACY_TRIP_ID), data);
-          });
-        });
-        rootRollCallsSnap.forEach((d) => {
-          const data = d.data();
-          ops.push((batch) => {
-            batch.set(tripDoc('rollcalls', d.id, LEGACY_TRIP_ID), data);
-          });
-        });
-
-        await commitOperationsInChunks(ops, 400);
-      } catch (err) {
-        console.error('Legacy trip migration check failed:', err);
-      }
-    };
-
-    const handlePendingJoinLink = async () => {
-      const pendingCode = sessionStorage.getItem(PENDING_JOIN_KEY);
-      if (!pendingCode) return;
-      sessionStorage.removeItem(PENDING_JOIN_KEY);
-      try {
-        const snap = await getDocs(
-          query(collection(db, 'trips'), where('inviteCode', '==', pendingCode))
-        );
-        if (snap.empty) {
-          if (!cancelled) setJoinNotice(`邀請碼「${pendingCode}」無效或行程已不存在。`);
-          return;
-        }
-        const targetDoc = snap.docs[0];
-        const updates: Record<string, any> = {
-          memberUids: arrayUnion(user.uid),
-          updatedAt: new Date().toISOString()
-        };
-        if (user.email) {
-          updates.collaboratorEmails = arrayUnion(user.email.toLowerCase());
-        }
-        await updateDoc(doc(db, 'trips', targetDoc.id), updates);
-        if (!cancelled) {
-          localStorage.setItem(`${ACTIVE_TRIP_STORAGE_PREFIX}${user.uid}`, targetDoc.id);
-          setActiveTripId(targetDoc.id);
-          setActiveTripState(targetDoc.id);
-          setJoinNotice(`已透過邀請碼加入「${(targetDoc.data() as Trip).name}」！`);
-        }
-      } catch (err) {
-        console.error('Auto-join via invite link failed:', err);
-      }
-    };
-
-    void (async () => {
-      await migrateLegacyTripIfNeeded();
-      await handlePendingJoinLink();
-    })();
 
     const unsubUidTrips = onSnapshot(
       query(collection(db, 'trips'), where('memberUids', 'array-contains', user.uid)),
@@ -367,9 +262,9 @@ export default function App() {
     };
   }, [user]);
 
-  // Real-time trip-scoped data sync (authenticated users + activeTripId only)
+  // Real-time trip-scoped data sync (verified authenticated users + activeTripId only)
   useEffect(() => {
-    if (!user || !activeTripId) {
+    if (!user || !user.emailVerified || !activeTripId) {
       setMembers([]);
       setGroups([]);
       setItineraries([]);
@@ -714,6 +609,85 @@ export default function App() {
     );
   }
 
+  // Require verified email before granting access to workspace data
+  if (!user.emailVerified) {
+    const handleResendVerification = async () => {
+      setSendingVerification(true);
+      setVerificationNotice(null);
+      try {
+        await sendEmailVerification(user);
+        setVerificationNotice(`驗證信已寄送至 ${user.email || '您的信箱'}，請點擊信中連結完成驗證。`);
+      } catch (err: any) {
+        setVerificationNotice(err?.message || '寄送驗證信失敗，請稍後再試。');
+      } finally {
+        setSendingVerification(false);
+      }
+    };
+
+    const handleRefreshVerification = async () => {
+      setSendingVerification(true);
+      setVerificationNotice(null);
+      try {
+        await user.reload();
+        if (auth.currentUser?.emailVerified) {
+          window.location.reload();
+        } else {
+          setVerificationNotice('尚未偵測到信箱驗證完成，請確認已點擊信件中的驗證連結。');
+        }
+      } catch {
+        setVerificationNotice('無法重新檢查驗證狀態，請重新整理頁面。');
+      } finally {
+        setSendingVerification(false);
+      }
+    };
+
+    return (
+      <div className="min-h-screen bg-stone-50 flex items-center justify-center p-6">
+        <div className="glass-panel w-full max-w-md rounded-3xl p-8 shadow-xl border border-stone-200/80 space-y-5 text-center">
+          <div className="w-12 h-12 rounded-2xl bg-stone-900 text-[#00F3FF] flex items-center justify-center mx-auto shadow-md">
+            <Mail className="w-6 h-6" />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-2xl font-serif font-semibold text-stone-900">請先完成 Email 信箱驗證</h2>
+            <p className="text-sm text-stone-600 leading-relaxed">
+              基於團員個資保護規範，帳號 <span className="font-mono font-bold text-stone-900">{user.email}</span> 須先完成電子郵件驗證，才能讀取或共編旅遊行程。
+            </p>
+          </div>
+          {verificationNotice && (
+            <div className="p-3 rounded-xl bg-stone-100 border border-stone-200 text-xs font-bold text-stone-700">
+              {verificationNotice}
+            </div>
+          )}
+          <div className="space-y-2.5 pt-1">
+            <button
+              type="button"
+              disabled={sendingVerification}
+              onClick={handleRefreshVerification}
+              className="w-full py-3 rounded-2xl bg-stone-900 text-white text-sm font-bold hover:bg-stone-800 disabled:opacity-60 cursor-pointer"
+            >
+              我已完成驗證，重新檢查
+            </button>
+            <button
+              type="button"
+              disabled={sendingVerification}
+              onClick={handleResendVerification}
+              className="w-full py-2.5 rounded-2xl bg-white border border-stone-200 text-stone-700 text-xs font-bold hover:bg-stone-50 disabled:opacity-60 cursor-pointer"
+            >
+              重新寄送驗證信
+            </button>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="w-full py-2 rounded-xl text-xs font-bold text-red-600 hover:bg-red-50 cursor-pointer"
+            >
+              登出系統
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const activeTrip = trips.find((t) => t.id === activeTripId) || null;
 
   return (
@@ -946,7 +920,7 @@ export default function App() {
                   </div>
                   <h3 className="text-xl font-serif font-bold text-stone-900">輸入邀請碼加入行程</h3>
                   <p className="text-xs text-stone-500 leading-relaxed">
-                    輸入團隊夥伴提供的 6 碼邀請碼，立刻同步檢視與共同編輯該團資料。
+                    輸入團隊夥伴提供的 12 碼安全邀請碼，立刻同步檢視與共同編輯該團資料。
                   </p>
                 </button>
               </div>

@@ -5,7 +5,14 @@ service cloud.firestore {
     // Assumed Data Model
     // ===============================================================
     //
-    // Collection: members
+    // Legacy root collections (locked down: read/write denied; data migrated to /trips/{tripId}/...)
+    //   - /members/{memberId}
+    //   - /groups/{groupId}
+    //   - /settings/{docId}
+    //   - /itineraries/{itineraryId}
+    //   - /rollcalls/{rollcallId}
+    //
+    // Collection: members (under /trips/{tripId}/members/{memberId})
     // Document ID: memberId
     // Fields:
     //   - id: string (optional on legacy partial updates, <= 128 chars)
@@ -25,22 +32,22 @@ service cloud.firestore {
     //   - tripDays: number | null (optional, 0..1000)
     //   - carNumber: string | null (optional, <= 100 chars)
     //
-    // Collection: groups
+    // Collection: groups (under /trips/{tripId}/groups/{groupId})
     // Document ID: groupId
     // Fields:
     //   - id: string (optional on legacy partial updates, <= 128 chars)
     //   - name: string (required, 1..100 chars)
     //
-    // Collection: settings
+    // Collection: settings (under /trips/{tripId}/settings/{docId})
     // Document ID: docId (e.g., tripSettings)
     // Fields:
     //   - startDate: string (optional, <= 30 chars)
     //   - endDate: string (optional, <= 30 chars)
     //   - officialStartDate: string | null (optional, <= 30 chars)
     //   - dailyAbsences: map | null (optional, <= 500 entries)
-    //   - adminEmails: list | null (optional, <= 100 items)
+    //   - adminEmails: list | null (locked down; allowed on existing legacy docs only, immutable on update)
     //
-    // Collection: itineraries
+    // Collection: itineraries (under /trips/{tripId}/itineraries/{itineraryId})
     // Document ID: itineraryId
     // Fields:
     //   - id: string (optional on legacy partial updates, <= 128 chars)
@@ -67,7 +74,7 @@ service cloud.firestore {
     //   - groups: list | null (optional, legacy, <= 200 items)
     //   - accommodationDetail: string | null (optional, legacy, <= 1000 chars)
     //
-    // Collection: rollcalls
+    // Collection: rollcalls (under /trips/{tripId}/rollcalls/{rollcallId})
     // Document ID: rollcallId (e.g., rc_{itineraryId})
     // Fields:
     //   - id: string (optional, <= 128 chars)
@@ -77,6 +84,14 @@ service cloud.firestore {
     //
     // Document: test/connection
     //   - Read-only connection test document for authenticated clients
+    //
+    // Collection: tripInvites
+    // Document ID: inviteCode (12..24 chars; get-only capability lookup, list disabled)
+    // Fields:
+    //   - tripId: string (required, 1..128 chars)
+    //   - tripName: string (required, 1..120 chars)
+    //   - ownerId: string (required, 1..128 chars)
+    //   - createdAt: string (required, 1..40 chars)
     //
     // Collection: trips
     // Document ID: tripId
@@ -91,16 +106,17 @@ service cloud.firestore {
     //   - ownerName: string | null (optional, <= 120 chars)
     //   - memberUids: list (required, <= 500 items)
     //   - collaboratorEmails: list (required, <= 500 items)
-    //   - inviteCode: string (required, 4..20 chars)
+    //   - inviteCode: string (required, 4..24 chars; >= 12 on new creates/rotations)
+    //   - lastJoinProof: string | null (optional, <= 200 chars; "<inviteCode>:<uid>" proof on invite join)
     //   - createdAt: string (required, immutable, 1..40 chars)
     //   - updatedAt: string | null (optional, <= 40 chars)
     //
     // Subcollections under /trips/{tripId}:
-    //   - /trips/{tripId}/members/{memberId} (same schema as root members)
-    //   - /trips/{tripId}/groups/{groupId} (same schema as root groups)
-    //   - /trips/{tripId}/settings/{docId} (same schema as root settings)
-    //   - /trips/{tripId}/itineraries/{itineraryId} (same schema as root itineraries)
-    //   - /trips/{tripId}/rollcalls/{rollcallId} (same schema as root rollcalls)
+    //   - /trips/{tripId}/members/{memberId}
+    //   - /trips/{tripId}/groups/{groupId}
+    //   - /trips/{tripId}/settings/{docId}
+    //   - /trips/{tripId}/itineraries/{itineraryId}
+    //   - /trips/{tripId}/rollcalls/{rollcallId}
     //
     // ===============================================================
 
@@ -110,10 +126,6 @@ service cloud.firestore {
     function isAuthenticated() {
       return request.auth != null &&
              (('email_verified' in request.auth.token && request.auth.token.email_verified == true) ||
-              ('firebase' in request.auth.token &&
-               request.auth.token.firebase is map &&
-               'sign_in_provider' in request.auth.token.firebase &&
-               request.auth.token.firebase.sign_in_provider == 'password') ||
               ('admin' in request.auth.token && request.auth.token.admin == true));
     }
 
@@ -150,11 +162,9 @@ service cloud.firestore {
     }
 
     function isTripCollaboratorData(tripData) {
-      return ('ownerId' in tripData && request.auth.uid == tripData.ownerId) ||
-             ('memberUids' in tripData && tripData.memberUids is list && request.auth.uid in tripData.memberUids) ||
-             ('collaboratorEmails' in tripData &&
-              tripData.collaboratorEmails is list &&
-              'email' in request.auth.token &&
+      return request.auth.uid == tripData.ownerId ||
+             request.auth.uid in tripData.memberUids ||
+             ('email' in request.auth.token &&
               request.auth.token.email is string &&
               (request.auth.token.email in tripData.collaboratorEmails ||
                request.auth.token.email.lower() in tripData.collaboratorEmails));
@@ -164,20 +174,59 @@ service cloud.firestore {
       return tripDocSnap != null && isTripCollaboratorData(tripDocSnap.data);
     }
 
-    function isJoiningTrip(oldData, newData) {
-      return newData.ownerId == oldData.ownerId &&
-             newData.inviteCode == oldData.inviteCode &&
+    function isOwnerUpdatingTrip(oldData, newData) {
+      return oldData.ownerId == request.auth.uid &&
+             oldData.ownerId in newData.memberUids &&
+             (newData.inviteCode == oldData.inviteCode || newData.inviteCode.size() >= 12) &&
+             (!('lastJoinProof' in newData) ||
+              ('lastJoinProof' in oldData && newData.lastJoinProof == oldData.lastJoinProof));
+    }
+
+    function isCollaboratorEditingTripMetadata(oldData, newData) {
+      return isTripCollaboratorData(oldData) &&
+             oldData.ownerId != request.auth.uid &&
+             newData.diff(oldData).affectedKeys().hasOnly(['name', 'description', 'startDate', 'endDate', 'updatedAt']);
+    }
+
+    function isCollaboratorLeavingTrip(oldData, newData) {
+      return isTripCollaboratorData(oldData) &&
+             oldData.ownerId != request.auth.uid &&
              newData.diff(oldData).affectedKeys().hasOnly(['memberUids', 'collaboratorEmails', 'updatedAt']) &&
+             oldData.ownerId in newData.memberUids &&
+             !(request.auth.uid in newData.memberUids) &&
+             oldData.memberUids.hasAll(newData.memberUids) &&
+             newData.memberUids.size() >= oldData.memberUids.size() - 1 &&
+             (!newData.diff(oldData).affectedKeys().hasAny(['collaboratorEmails']) ||
+              (oldData.collaboratorEmails.hasAll(newData.collaboratorEmails) &&
+               newData.collaboratorEmails.size() >= oldData.collaboratorEmails.size() - 1 &&
+               'email' in request.auth.token &&
+               request.auth.token.email is string &&
+               !(request.auth.token.email in newData.collaboratorEmails) &&
+               !(request.auth.token.email.lower() in newData.collaboratorEmails) &&
+               (!(oldData.ownerEmail.lower() in oldData.collaboratorEmails) ||
+                oldData.ownerEmail.lower() in newData.collaboratorEmails)));
+    }
+
+    function isJoiningTrip(tripId, oldData, newData) {
+      return !(request.auth.uid in oldData.memberUids) &&
+             oldData.inviteCode is string &&
+             oldData.inviteCode.size() >= 12 &&
+             exists(/databases/$(database)/documents/tripInvites/$(oldData.inviteCode)) &&
+             get(/databases/$(database)/documents/tripInvites/$(oldData.inviteCode)).data.tripId == tripId &&
+             newData.diff(oldData).affectedKeys().hasOnly(['memberUids', 'collaboratorEmails', 'lastJoinProof', 'updatedAt']) &&
+             'lastJoinProof' in newData &&
+             newData.lastJoinProof == oldData.inviteCode + ':' + request.auth.uid &&
              request.auth.uid in newData.memberUids &&
              newData.memberUids.hasAll(oldData.memberUids) &&
-             newData.memberUids.size() <= oldData.memberUids.size() + 1 &&
+             newData.memberUids.size() == oldData.memberUids.size() + 1 &&
              (!newData.diff(oldData).affectedKeys().hasAny(['collaboratorEmails']) ||
               (newData.collaboratorEmails.hasAll(oldData.collaboratorEmails) &&
                newData.collaboratorEmails.size() <= oldData.collaboratorEmails.size() + 1 &&
                'email' in request.auth.token &&
                request.auth.token.email is string &&
                (request.auth.token.email in newData.collaboratorEmails ||
-                request.auth.token.email.lower() in newData.collaboratorEmails)));
+                request.auth.token.email.lower() in newData.collaboratorEmails) &&
+               newData.collaboratorEmails.removeAll(oldData.collaboratorEmails).hasOnly([request.auth.token.email, request.auth.token.email.lower()])));
     }
 
     function canAccessTrip(tripId) {
@@ -290,11 +339,21 @@ service cloud.firestore {
              data.statusMap is map && data.statusMap.size() <= 1000;
     }
 
+    function isValidTripInvite(data) {
+      return hasOnlyAllowedFields(data, ['tripId', 'tripName', 'ownerId', 'createdAt']) &&
+             hasRequiredFields(data, ['tripId', 'tripName', 'ownerId', 'createdAt']) &&
+             data.tripId is string && data.tripId.size() > 0 && data.tripId.size() <= 128 &&
+             data.tripName is string && data.tripName.size() > 0 && data.tripName.size() <= 120 &&
+             data.ownerId is string && data.ownerId.size() > 0 && data.ownerId.size() <= 128 &&
+             data.createdAt is string && data.createdAt.size() > 0 && data.createdAt.size() <= 40;
+    }
+
     function isValidTrip(data) {
       return hasOnlyAllowedFields(data, [
                'id', 'name', 'description', 'startDate', 'endDate',
                'ownerId', 'ownerEmail', 'ownerName', 'memberUids',
-               'collaboratorEmails', 'inviteCode', 'createdAt', 'updatedAt'
+               'collaboratorEmails', 'inviteCode', 'lastJoinProof',
+               'createdAt', 'updatedAt'
              ]) &&
              hasRequiredFields(data, [
                'name', 'startDate', 'endDate', 'ownerId', 'ownerEmail',
@@ -310,7 +369,8 @@ service cloud.firestore {
              isValidOptionalString(data, 'ownerName', 120) &&
              data.memberUids is list && data.memberUids.size() <= 500 &&
              data.collaboratorEmails is list && data.collaboratorEmails.size() <= 500 &&
-             data.inviteCode is string && data.inviteCode.size() >= 4 && data.inviteCode.size() <= 20 &&
+             data.inviteCode is string && data.inviteCode.size() >= 4 && data.inviteCode.size() <= 24 &&
+             isValidOptionalString(data, 'lastJoinProof', 200) &&
              data.createdAt is string && data.createdAt.size() > 0 && data.createdAt.size() <= 40 &&
              isValidOptionalString(data, 'updatedAt', 40);
     }
@@ -324,49 +384,64 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Legacy root collections locked down (data migrated to /trips/{tripId}/...)
     match /members/{memberId} {
-      allow read, delete: if isAuthenticated();
-      allow create, update: if isAuthenticated() && isValidMember(request.resource.data);
+      allow read, write: if false;
     }
 
     match /groups/{groupId} {
-      allow read, delete: if isAuthenticated();
-      allow create, update: if isAuthenticated() && isValidGroup(request.resource.data);
+      allow read, write: if false;
     }
 
     match /settings/{docId} {
-      allow read, delete: if isAuthenticated();
-      allow create, update: if isAuthenticated() && isValidSettings(request.resource.data);
+      allow read, write: if false;
     }
 
     match /itineraries/{itineraryId} {
-      allow read, delete: if isAuthenticated();
-      allow create, update: if isAuthenticated() && isValidItinerary(request.resource.data);
+      allow read, write: if false;
     }
 
     match /rollcalls/{rollcallId} {
-      allow read, delete: if isAuthenticated();
-      allow create, update: if isAuthenticated() && isValidRollCall(request.resource.data);
+      allow read, write: if false;
     }
 
     match /test/connection {
       allow read: if isAuthenticated();
     }
 
+    match /tripInvites/{inviteCode} {
+      allow get: if isAuthenticated() && inviteCode.size() >= 12 && inviteCode.size() <= 24;
+      allow list: if false;
+      allow create: if isAuthenticated() &&
+                       inviteCode.size() >= 12 &&
+                       inviteCode.size() <= 24 &&
+                       isValidTripInvite(request.resource.data) &&
+                       request.resource.data.ownerId == request.auth.uid &&
+                       exists(/databases/$(database)/documents/trips/$(request.resource.data.tripId)) &&
+                       get(/databases/$(database)/documents/trips/$(request.resource.data.tripId)).data.ownerId == request.auth.uid &&
+                       get(/databases/$(database)/documents/trips/$(request.resource.data.tripId)).data.inviteCode == inviteCode;
+      allow update: if false;
+      allow delete: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
+    }
+
     match /trips/{tripId} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && isTripCollaboratorData(resource.data);
       allow create: if isAuthenticated() &&
                        isValidTrip(request.resource.data) &&
                        request.resource.data.ownerId == request.auth.uid &&
-                       request.auth.uid in request.resource.data.memberUids;
+                       request.auth.uid in request.resource.data.memberUids &&
+                       request.resource.data.inviteCode.size() >= 12 &&
+                       !('lastJoinProof' in request.resource.data);
       allow update: if isAuthenticated() &&
                        isValidTrip(request.resource.data) &&
                        request.resource.data.ownerId == resource.data.ownerId &&
                        request.resource.data.ownerEmail == resource.data.ownerEmail &&
                        request.resource.data.createdAt == resource.data.createdAt &&
                        (!('id' in resource.data) || request.resource.data.id == resource.data.id) &&
-                       (isTripCollaboratorData(resource.data) ||
-                        isJoiningTrip(resource.data, request.resource.data));
+                       (isOwnerUpdatingTrip(resource.data, request.resource.data) ||
+                        isCollaboratorEditingTripMetadata(resource.data, request.resource.data) ||
+                        isCollaboratorLeavingTrip(resource.data, request.resource.data) ||
+                        isJoiningTrip(tripId, resource.data, request.resource.data));
       allow delete: if isAuthenticated() &&
                        resource.data.ownerId == request.auth.uid;
 
@@ -382,7 +457,13 @@ service cloud.firestore {
 
       match /settings/{docId} {
         allow read, delete: if canAccessTrip(tripId);
-        allow create, update: if canAccessTrip(tripId) && isValidSettings(request.resource.data);
+        allow create: if canAccessTrip(tripId) &&
+                         isValidSettings(request.resource.data) &&
+                         !('adminEmails' in request.resource.data);
+        allow update: if canAccessTrip(tripId) &&
+                         isValidSettings(request.resource.data) &&
+                         (!('adminEmails' in request.resource.data) ||
+                          ('adminEmails' in resource.data && request.resource.data.adminEmails == resource.data.adminEmails));
       }
 
       match /itineraries/{itineraryId} {
